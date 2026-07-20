@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>声之沙 · Chladni</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#0b0c0e;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#c9cfd6;touch-action:none;user-select:none}
+  body{background:radial-gradient(120% 90% at 50% 8%,#15171b 0%,#0b0c0e 62%,#08090a 100%)}
+  #cv{position:fixed;display:block;touch-action:none;cursor:crosshair;
+    border:1px solid rgba(190,205,220,.16);border-radius:5px;
+    box-shadow:0 0 0 1px rgba(0,0,0,.6),0 22px 60px rgba(0,0,0,.55),inset 0 0 40px rgba(0,0,0,.5)}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:4px}
+  .title span{display:block;font-size:12px;opacity:.5;margin-top:3px;font-weight:600;letter-spacing:.5px}
+  #mute{position:fixed;top:15px;right:16px;z-index:7;font:inherit;font-size:16px;line-height:1;
+    color:#c9cfd6;border:1px solid rgba(190,205,220,.22);background:rgba(30,34,40,.72);
+    padding:10px 12px;border-radius:12px;cursor:pointer;backdrop-filter:blur(10px)}
+  #mute.off{color:#7c848d;border-color:rgba(190,205,220,.12)}
+  .dock{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;pointer-events:none;
+    display:flex;flex-direction:column;align-items:center;gap:9px;width:min(430px,92vw)}
+  .hint{font-size:13px;font-weight:600;opacity:.5;pointer-events:none;transition:opacity .6s;
+    white-space:nowrap;text-align:center}
+  .bar{pointer-events:auto;width:100%;
+    background:rgba(24,27,32,.78);border:1px solid rgba(190,205,220,.14);
+    padding:11px 15px 13px;border-radius:17px;backdrop-filter:blur(10px);box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  .row{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px}
+  .row .lab{font-size:12px;font-weight:800;letter-spacing:3px;opacity:.62}
+  .row .val{font-size:12px;font-weight:700;opacity:.45;font-variant-numeric:tabular-nums}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:16px;background:transparent;cursor:pointer;display:block}
+  input[type=range]::-webkit-slider-runnable-track{height:16px;border-radius:8px;
+    background:linear-gradient(90deg,#3a4552,#5d7488);border:1px solid rgba(190,205,220,.16)}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;
+    margin-top:-6px;background:#e8edf2;border:none;box-shadow:0 2px 8px rgba(0,0,0,.6)}
+  input[type=range]::-moz-range-track{height:16px;border-radius:8px;
+    background:linear-gradient(90deg,#3a4552,#5d7488);border:1px solid rgba(190,205,220,.16)}
+  input[type=range]::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:#e8edf2;border:none}
+  @media (max-width:560px){
+    .title b{font-size:17px;letter-spacing:3px}
+    .hint{font-size:12px}
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>声之沙</b><span>拖一下，看看声音长什么样</span></div>
+<button id="mute">🔊</button>
+<div class="dock">
+  <div class="hint" id="hint">👆 横向拖 = 换音，上下拖 = 震得更狠</div>
+  <div class="bar">
+    <div class="row"><span class="lab">音高</span><span class="val" id="val">—</span></div>
+    <input type="range" id="pitch" min="0" max="11" step="1" value="2">
+  </div>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d',{alpha:false});
+const hintEl=document.getElementById('hint'), valEl=document.getElementById('val');
+const pitchEl=document.getElementById('pitch'), muteEl=document.getElementById('mute');
+
+// ---- 人工挑选过的 (n,m) 阶梯，按 n²+m² 排序 ----
+const MODES=[[1,2],[1,3],[2,3],[1,4],[2,4],[3,4],[1,5],[2,5],[3,5],[4,5],[3,6],[5,6]];
+const SMIN=5, SMAX=61;
+const freqOf=i=>{const[n,m]=MODES[i];return 120+(n*n+m*m-SMIN)/(SMAX-SMIN)*780;};
+
+// ---- 粒子（归一化 0..1，resize 完全免费）----
+const MOBILE=Math.min(window.innerWidth,window.innerHeight)<560;
+const N0=MOBILE?3500:7000, NMAX=Math.round(N0*1.7);
+const px=new Float32Array(NMAX), py=new Float32Array(NMAX);
+let count=0;
+function sprinkle(k){ for(let i=0;i<k&&count<NMAX;i++){ px[count]=Math.random(); py[count]=Math.random(); count++; } }
+sprinkle(N0);
+
+// ---- 布局：canvas 就是那块板 ----
+let W=0,H=0,side=0,R=0,acc=null,img=null,base=null;
+function layout(){
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  const mob=W<560;
+  // 板只在「标题下方 ~ dock 上方」这条带子里排版，矮窗口下才不会压到滑块
+  const dockEl=document.querySelector('.dock');
+  const bandTop=mob?70:72, bandBot=H-((dockEl?dockEl.offsetHeight:112)+28);
+  const band=Math.max(140,bandBot-bandTop);
+  side=Math.min(mob?W*0.88:W*0.56, Math.max(120,band-36), 700);
+  side=Math.max(120,side);
+  const left=(W-side)/2;
+  // 手机竖屏：居中偏上，下半屏留给手指
+  let top=bandTop+(band-side)*(mob?0.34:0.5);
+  // side 有下限，极矮视口（如 568×320 横屏）下它可能比整条带子还高 →
+  // 先往上顶，别压住 hint 和滑块；再兜住上沿，别压住标题
+  top=Math.max(bandTop-14, Math.min(top, bandBot-side));
+  cv.style.left=Math.round(left)+'px'; cv.style.top=Math.round(top)+'px';
+  cv.style.width=Math.round(side)+'px'; cv.style.height=Math.round(side)+'px';
+  const nr=Math.max(200,Math.min(640,Math.round(side*1.2)));
+  if(nr!==R){
+    R=nr; cv.width=R; cv.height=R;
+    acc=new Float32Array(R*R); img=ctx.createImageData(R,R); base=new Uint8ClampedArray(R*R*4);
+    // 极淡的金属渐变（一次性烘到底图里）
+    for(let y=0;y<R;y++)for(let x=0;x<R;x++){
+      const p=(y*R+x)*4, u=x/R, v=y/R;
+      const sheen=Math.max(0,1-Math.hypot(u-0.42,v-0.3)*1.35);
+      const g=6*sheen*sheen + (1-v)*5;
+      base[p]=28+g; base[p+1]=31+g; base[p+2]=35+g; base[p+3]=255;
+    }
+  }
+}
+window.addEventListener('resize',layout); layout();
+
+// ---- 状态 ----
+let cur=2, prev=2, tr=1;        // tr: 0→1 新旧位移场插值
+const TRT=0.45, ANT=0.8;
+let anneal=0;                   // 退火剩余秒数
+let drive=0.55, target=0.55;    // 抖动强度
+let holding=false;
+const PI=Math.PI;
+
+function setMode(i,fromSlider){
+  i=Math.max(0,Math.min(MODES.length-1,i|0));
+  if(i===cur)return;
+  // 融化：连续快速切换时不重置进行中的插值，避免位移场瞬跳
+  if(tr>=0.4){ prev=cur; tr=0; }
+  cur=i; anneal=ANT;
+  if(!fromSlider)pitchEl.value=i;
+  readout();
+}
+function readout(){
+  const[n,m]=MODES[cur];
+  valEl.textContent='('+n+','+m+')  '+Math.round(freqOf(cur))+' Hz';
+}
+readout();
+
+// ---- 一步物理：解析偏导 + 沿 |w| 下降 + 正比 |w| 的抖动 ----
+// FLOOR = 节线上的底噪（没有它节线会缩成一根死线，必须随强度加宽，否则上下拖看不出变化）
+// JIT   = 正比 |w| 的抖动，把远离节线的沙弹飞
+const SPEED=0.014, FLOOR0=0.0019, FLOOR1=0.0125, JIT0=0.0016, JIT1=0.016;
+function step(dt){
+  const f=Math.min(dt*60,2);
+  if(tr<1){ tr=Math.min(1,tr+dt/TRT); }
+  if(anneal>0) anneal=Math.max(0,anneal-dt);
+  drive+=(target-drive)*Math.min(1,dt*6);
+  // 退火：换 (n,m) 时抖动加倍再衰减。光加抖动不够——沙只会顺着旧线滑到最近的新分支，
+  // 远处的分支一粒沙都分不到，图形会越换越残。所以同时把一部分沙真的抛起来重新落点。
+  const ann=anneal/ANT;
+  const flo=FLOOR0+FLOOR1*drive+0.020*ann, jit=JIT0+JIT1*drive;
+  const rr=0.055*ann*f;
+  const spd=SPEED*f;
+  const B=tr<1?(tr*tr*(3-2*tr)):1, A=1-B;           // smoothstep 融化
+  const [n1,m1]=MODES[prev], [n2,m2]=MODES[cur];
+  const blend=A>0.001;
+  for(let i=0;i<count;i++){
+    let x=px[i], y=py[i], w,gx,gy;
+    if(rr>0 && Math.random()<rr){ x=Math.random(); y=Math.random(); }
+    // 主模态
+    let a=PI*n2*x,b=PI*m2*x,c=PI*n2*y,d=PI*m2*y;
+    let ca=Math.cos(a),sa=Math.sin(a),cb=Math.cos(b),sb=Math.sin(b);
+    let cc=Math.cos(c),sc=Math.sin(c),cd=Math.cos(d),sd=Math.sin(d);
+    w=ca*cd-cb*cc;
+    gx=-PI*n2*sa*cd+PI*m2*sb*cc;
+    gy=-PI*m2*ca*sd+PI*n2*cb*sc;
+    if(blend){
+      w*=B; gx*=B; gy*=B;
+      a=PI*n1*x;b=PI*m1*x;c=PI*n1*y;d=PI*m1*y;
+      ca=Math.cos(a);sa=Math.sin(a);cb=Math.cos(b);sb=Math.sin(b);
+      cc=Math.cos(c);sc=Math.sin(c);cd=Math.cos(d);sd=Math.sin(d);
+      w+=A*(ca*cd-cb*cc);
+      gx+=A*(-PI*n1*sa*cd+PI*m1*sb*cc);
+      gy+=A*(-PI*m1*ca*sd+PI*n1*cb*sc);
+    }
+    const aw=w<0?-w:w;
+    const gl=Math.sqrt(gx*gx+gy*gy)+1e-6;
+    const s=(w<0?1:-1)*(aw<1?aw:1)*spd/gl;          // 步长正比 |w|，沿 |w| 下降
+    const jm=(flo+jit*aw)*f;                        // 振幅大处沙被弹飞，节线上只剩底噪
+    x+=gx*s+(Math.random()-0.5)*jm;
+    y+=gy*s+(Math.random()-0.5)*jm;
+    if(x<0)x=-x; else if(x>1)x=2-x;
+    if(y<0)y=-y; else if(y>1)y=2-y;
+    px[i]=x; py[i]=y;
+  }
+}
+
+// ---- 渲染：ImageData 逐点累积 + 上一帧残影 ----
+function draw(dt){
+  const decay=Math.pow(0.80,Math.min(dt*60,3));
+  for(let i=0;i<acc.length;i++) acc[i]*=decay;
+  const R1=R-1;
+  for(let i=0;i<count;i++){
+    const gx=px[i]*R1, gy=py[i]*R1;
+    const x=gx|0, y=gy|0, k=y*R+x;
+    acc[k]+=1;
+    if(x>0)acc[k-1]+=0.3; if(x<R1)acc[k+1]+=0.3;
+    if(y>0)acc[k-R]+=0.3; if(y<R1)acc[k+R]+=0.3;
+  }
+  const d=img.data; d.set(base);
+  for(let i=0,p=0;i<acc.length;i++,p+=4){
+    const v=acc[i];
+    if(v<0.004)continue;
+    const al=1-Math.exp(-v*0.62);                   // 浓处自然变亮，不是纯白实心
+    d[p]  =d[p]  +(246-d[p])*al;
+    d[p+1]=d[p+1]+(248-d[p+1])*al;
+    d[p+2]=d[p+2]+(241-d[p+2])*al;
+  }
+  ctx.putImageData(img,0,0);
+}
+
+let last=performance.now();
+function frame(now){
+  const dt=Math.min((now-last)/1000,0.05); last=now;
+  step(dt); draw(dt); audioTick();
+  requestAnimationFrame(frame);
+}
+
+// ---- 声音 ----
+let AC=null,osc=null,gain=null,muted=false;
+function audioInit(){
+  if(AC)return;
+  const C=window.AudioContext||window.webkitAudioContext; if(!C)return;
+  try{
+    AC=new C(); gain=AC.createGain(); gain.gain.value=0;
+    osc=AC.createOscillator(); osc.type='sine'; osc.frequency.value=freqOf(cur);
+    osc.connect(gain); gain.connect(AC.destination); osc.start();
+  }catch(e){AC=null;}
+}
+function audioTick(){
+  if(!AC||!osc)return;
+  if(AC.state==='suspended')return;
+  const t=AC.currentTime;
+  osc.frequency.setTargetAtTime(freqOf(cur),t,0.04);
+  gain.gain.setTargetAtTime(muted?0:0.06*(0.12+0.88*drive),t,0.06);
+}
+muteEl.onclick=e=>{e.stopPropagation();muted=!muted;muteEl.textContent=muted?'🔇':'🔊';muteEl.classList.toggle('off',muted);};
+
+// ---- 交互 ----
+let hintGone=false;
+function hideHint(){if(hintGone)return;hintGone=true;hintEl.style.opacity=0;}
+function fromEvent(e){
+  const r=cv.getBoundingClientRect();
+  const u=(e.clientX-r.left)/r.width, v=(e.clientY-r.top)/r.height;
+  return {u:Math.max(0,Math.min(1,u)),v:Math.max(0,Math.min(1,v))};
+}
+let downAt=null,moved=0;
+function apply(e){
+  const {u,v}=fromEvent(e);
+  setMode(Math.round(u*(MODES.length-1)));
+  target=0.16+0.84*(1-v);                            // 上 = 震得更狠
+}
+// 第一根手指拿走这次手势，多余的手指全忽略。
+// 否则第二根手指落下再抬起会直接 release()，第一根手指还按着却不跟手了。
+let activeId=null;
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault(); audioInit();
+  if(AC&&AC.state==='suspended')AC.resume();
+  if(activeId!==null)return;
+  activeId=e.pointerId;
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  holding=true; downAt={x:e.clientX,y:e.clientY}; moved=0;
+  hideHint(); apply(e);
+});
+cv.addEventListener('pointermove',e=>{
+  if(!holding||e.pointerId!==activeId)return;
+  if(downAt)moved=Math.max(moved,Math.hypot(e.clientX-downAt.x,e.clientY-downAt.y));
+  apply(e);
+});
+function release(){
+  activeId=null;
+  if(!holding)return; holding=false;
+  target=0.045;                                      // 松手：静静停在节线上
+}
+cv.addEventListener('pointerup',e=>{
+  if(e.pointerId!==activeId)return;
+  // 点一下 = 再撒一把沙。新沙本来就落在随机位置，会自己往节线上跑，
+  // 不要顺手触发退火——那会把已经停稳、用户正准备截图的沙又抖散。
+  if(holding&&moved<7) sprinkle(280);
+  release();
+});
+cv.addEventListener('pointercancel',e=>{if(e.pointerId===activeId)release();});
+cv.addEventListener('pointerleave',e=>{if(holding&&e.pointerId===activeId)release();});
+
+pitchEl.addEventListener('input',()=>{ hideHint(); audioInit(); if(AC&&AC.state==='suspended')AC.resume();
+  setMode(+pitchEl.value,true); target=Math.max(target,0.5); setTimeout(()=>{if(!holding)target=0.045;},900); });
+
+// ---- 手动步进钩子（无头验收用）----
+// 每步都 draw，才和真实 rAF 一致（只在末尾 draw 会留下没衰减掉的残影，验收会被骗）
+window.__tick=(n,dt)=>{ dt=dt||1/60; for(let i=0;i<n;i++){step(dt);draw(dt);} return count; };
+window.__pts=()=>({n:count,x:px,y:py});
+window.__scatter=()=>{ for(let i=0;i<count;i++){px[i]=Math.random();py[i]=Math.random();} return count; };
+window.__set=(i,dr)=>{ setMode(i); if(dr!==undefined)target=drive=dr; return [cur,prev,tr]; };
+window.__st=()=>({count,cur,prev,tr,drive,target,anneal,R,side,
+  nan:(()=>{for(let i=0;i<count;i++)if(!isFinite(px[i])||!isFinite(py[i]))return i;return -1;})(),
+  ...(()=>{ // 沙离节线有多近：onLine=|w|<0.12 的比例，meanAw=平均 |w|（带宽的代理指标）
+    const[n,m]=MODES[cur]; let k=0,s=0;
+    for(let i=0;i<count;i++){const w=Math.cos(PI*n*px[i])*Math.cos(PI*m*py[i])-Math.cos(PI*m*px[i])*Math.cos(PI*n*py[i]);
+      const a=Math.abs(w); s+=a; if(a<0.12)k++;}
+    return {onLine:k/count, meanAw:+(s/count).toFixed(4)};})()});
+
+target=0.045; drive=0.5; anneal=ANT;
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

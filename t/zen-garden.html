@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>枯山水 · Zen Garden</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#efe8da;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#5c5347;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0;touch-action:none}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:4px;text-shadow:0 1px 0 rgba(255,255,255,.7)}
+  .title span{display:block;font-size:12px;opacity:.6;margin-top:3px;font-weight:600;letter-spacing:1px}
+  .dock{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;pointer-events:none;
+    display:flex;flex-direction:column;align-items:center;gap:8px;max-width:96vw}
+  .bar{pointer-events:auto;display:flex;gap:8px;justify-content:center;max-width:96vw;
+    background:rgba(255,255,255,.66);border:1px solid rgba(120,105,85,.18);
+    padding:8px;border-radius:16px;backdrop-filter:blur(10px);box-shadow:0 8px 26px rgba(120,100,75,.18)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#5c5347;border:none;background:#fffdf7;
+    padding:9px 13px;border-radius:11px;cursor:pointer;white-space:nowrap;
+    box-shadow:0 2px 0 rgba(120,100,75,.16);transition:transform .08s}
+  .bar button:active{transform:translateY(1px);box-shadow:0 1px 0 rgba(120,100,75,.16)}
+  .hint{font-size:13px;font-weight:600;opacity:.55;pointer-events:none;transition:opacity .6s;
+    white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.7)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>枯山水</b><span>手指就是耙子</span></div>
+<div class="dock">
+  <div class="hint" id="hint">🪨 手指划过沙面 · 长按空白处放一块石头</div>
+  <div class="bar">
+    <button id="add">🪨 放一块石头</button>
+    <button id="smooth">🌬️ 抹平</button>
+  </div>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,S=0,dpr=1;
+
+// ---- layers -------------------------------------------------------------
+function mk(){return document.createElement('canvas');}
+const base=mk(), bctx=base.getContext('2d');      // sand + noise (static)
+let grooves=mk(), gctx=grooves.getContext('2d');  // all finished rake lines
+let live=mk(), lctx=live.getContext('2d');        // the stroke in progress
+
+// ---- stones (normalized coords) -----------------------------------------
+// nx,ny in [0,1] of W,H ; nrx,nry relative to short side S
+let stones=[];
+function defaultStones(){
+  stones=[
+    {nx:0.30,ny:0.235,nrx:0.088,nry:0.062,rot:-0.22,t:1},
+    {nx:0.545,ny:0.325,nrx:0.055,nry:0.042,rot:0.55,t:1},
+    {nx:0.70,ny:0.185,nrx:0.070,nry:0.050,rot:0.18,t:1}
+  ];
+}
+defaultStones();
+function geo(s){
+  const g=s.g||(s.g={});
+  const sc=s.t>=1?1:(0.35+0.65*ease(s.t))*(1+0.16*Math.sin(Math.PI*Math.min(s.t*1.6,1)));
+  g.x=s.nx*W; g.y=s.ny*H; g.rx=Math.max(4,s.nrx*S*sc); g.ry=Math.max(3,s.nry*S*sc); g.rot=s.rot;
+  return g;
+}
+function ease(t){t=Math.min(1,Math.max(0,t));return 1-Math.pow(1-t,3);}
+
+// ---- analytic ellipse distance field ------------------------------------
+// returns approx signed distance to nearest stone edge (+ outside) and the
+// outward unit gradient at that point. closed form, no BFS, no grid.
+const _f={d:0,gx:0,gy:0,cx:0,cy:0};
+let _d=new Float64Array(64),_gx=new Float64Array(64),_gy=new Float64Array(64),
+    _cx=new Float64Array(64),_cy=new Float64Array(64);
+function field(px,py){
+  const n=stones.length;
+  if(!n){ _f.d=1e9; _f.gx=0; _f.gy=-1; _f.cx=px; _f.cy=py; return _f; }
+  if(n>_d.length){ const m=n+32;
+    _d=new Float64Array(m);_gx=new Float64Array(m);_gy=new Float64Array(m);
+    _cx=new Float64Array(m);_cy=new Float64Array(m); }
+  let dmin=1e9;
+  for(let i=0;i<n;i++){
+    const g=geo(stones[i]);
+    const c=Math.cos(-g.rot), s=Math.sin(-g.rot);
+    const ux=px-g.x, uy=py-g.y;
+    const x=ux*c-uy*s, y=ux*s+uy*c;          // local frame
+    const a=g.rx, b=g.ry;
+    const f=(x*x)/(a*a)+(y*y)/(b*b)-1;        // algebraic
+    let nx=2*x/(a*a), ny=2*y/(b*b);
+    let L=Math.hypot(nx,ny);
+    if(L<1e-9){ nx=0; ny=-1; L=1; }           // dead centre fallback
+    // first-order geometric distance. The estimate degrades badly near the
+    // centre (|grad| -> 0 makes it dive to -infinity), so clamp it: no point can
+    // be deeper inside than the semi-major axis.
+    const R=a>b?a:b;
+    let d=f/L; if(d<-R) d=-R;
+    const c2=Math.cos(g.rot), s2=Math.sin(g.rot), gx=nx/L, gy=ny/L;
+    _d[i]=d; _gx[i]=gx*c2-gy*s2; _gy[i]=gx*s2+gy*c2; _cx[i]=g.x; _cy[i]=g.y;
+    if(d<dmin) dmin=d;
+  }
+  // Distance is the HARD min (a blended distance would under-report how deep a
+  // tooth is buried once stones crowd together, and the tooth would never get
+  // pushed out). The direction is soft-blended, which is what actually removes
+  // the crease that used to kink the rake line between two neighbouring stones.
+  const K=Math.max(4,GAP*1.2);
+  let sw=0,sgx=0,sgy=0,scx=0,scy=0;
+  for(let i=0;i<n;i++){
+    const w=Math.exp(-(_d[i]-dmin)/K);
+    sw+=w; sgx+=w*_gx[i]; sgy+=w*_gy[i]; scx+=w*_cx[i]; scy+=w*_cy[i];
+  }
+  let gl=Math.hypot(sgx,sgy); if(gl<1e-9){ sgx=0; sgy=-1; gl=1; }
+  _f.d=dmin; _f.gx=sgx/gl; _f.gy=sgy/gl; _f.cx=scx/sw; _f.cy=scy/sw;
+  return _f;
+}
+
+// ---- rake ---------------------------------------------------------------
+const NT=5;                     // teeth
+let GAP=14, PAD=8, MINGAP=10, STEP=2.2, MINSTEP=1.2;
+function metrics(){
+  GAP=Math.max(9,Math.min(18,S*0.028));
+  if(H>W) GAP*=0.88;            // portrait: a touch narrower
+  PAD=GAP*0.62; MINGAP=GAP*0.76;
+}
+let stroke=null;
+const cx_=new Float64Array(NT), cy_=new Float64Array(NT);
+
+const bx_=new Float64Array(NT), by_=new Float64Array(NT);
+const off_=new Float64Array(NT), tgt_=new Float64Array(NT);
+// The solve used to be memoryless: every sample re-solved from the flat comb. A
+// tooth riding the innermost ring has TWO valid answers (round the stone to the
+// left, or to the right), and a memoryless solver just takes whichever is nearer
+// -- so the moment the pen crossed a stone centre the tooth snapped 110px to the
+// far side. Carrying the previous positions makes it slide round instead.
+const pvx_=new Float64Array(NT), pvy_=new Float64Array(NT);
+let hasPrev=false, lastPx=0, lastPy=0;
+function relax(px,py,nx,ny){
+  const mdx=hasPrev?px-lastPx:0, mdy=hasPrev?py-lastPy:0;
+  const mdist=Math.hypot(mdx,mdy);
+  for(let k=0;k<NT;k++){
+    const o=off_[k]=(k-(NT-1)/2)*GAP;
+    bx_[k]=px+nx*o; by_[k]=py+ny*o;
+    // seed from where this tooth actually was, carried along by the pen
+    if(hasPrev){ cx_[k]=pvx_[k]+mdx; cy_[k]=pvy_[k]+mdy; }
+    else { cx_[k]=bx_[k]; cy_[k]=by_[k]; }
+  }
+  // Which teeth are blocked, and how far along the comb axis the stone sits.
+  const f0=field(px,py);
+  const c=(f0.cx-px)*nx+(f0.cy-py)*ny;
+  // Each tooth gets its OWN ring radius, sized by how squarely it is aimed at the
+  // stone centre. This used to be an integer RANK from a sort -- but a rank flips
+  // in one discrete jump the moment the stone centre crosses a tooth, and every
+  // ring then moved a whole MINGAP in a single 2px sample: that was the staircase
+  // of right-angle corners between two stones. Measuring the offset continuously
+  // gives the same rings when the stone lines up with a tooth and slides smoothly
+  // in between. c is clamped to the comb span so a stone way off to one side
+  // still puts the nearest tooth on the innermost ring instead of banishing all
+  // five to the outer one.
+  const cc=Math.max(off_[0],Math.min(off_[NT-1],c));
+  for(let k=0;k<NT;k++) tgt_[k]=PAD+Math.abs(off_[k]-cc)/GAP*MINGAP;
+  for(let it=0;it<7;it++){
+    // ease back toward the nominal comb slot, so a tooth that has cleared a stone
+    // straightens out again instead of trailing its detour across the whole sweep
+    for(let k=0;k<NT;k++){
+      cx_[k]+=(bx_[k]-cx_[k])*0.14; cy_[k]+=(by_[k]-cy_[k])*0.14;
+    }
+    // gradient projection onto each tooth's own ring
+    for(let k=0;k<NT;k++){
+      const f=field(cx_[k],cy_[k]);
+      if(f.d<tgt_[k]){ const p=Math.min(tgt_[k]-f.d,GAP*3); cx_[k]+=f.gx*p; cy_[k]+=f.gy*p; }
+    }
+    // gentle separation so a pushed tooth never lands on an untouched neighbour
+    for(let k=0;k<NT-1;k++){
+      let vx=cx_[k+1]-cx_[k], vy=cy_[k+1]-cy_[k];
+      let L=Math.hypot(vx,vy);
+      if(L<1e-6){ vx=nx; vy=ny; L=1; }
+      if(L<MINGAP*0.8){
+        const m=(MINGAP*0.8-L)/2/L*0.5;
+        cx_[k]-=vx*m; cy_[k]-=vy*m; cx_[k+1]+=vx*m; cy_[k+1]+=vy*m;
+      }
+    }
+  }
+  // Speed limit: a tooth may outrun the pen (it travels the long way round a
+  // stone) but it may not teleport. Without this the branch flip still happened,
+  // just in one frame; with it the tooth is forced to physically slide round, and
+  // every drawn segment stays short enough to join up instead of cutting a chord.
+  if(hasPrev){
+    const cap=mdist*4+2;
+    for(let k=0;k<NT;k++){
+      const vx=cx_[k]-pvx_[k], vy=cy_[k]-pvy_[k], L=Math.hypot(vx,vy);
+      if(L>cap){ const m=cap/L; cx_[k]=pvx_[k]+vx*m; cy_[k]=pvy_[k]+vy*m; }
+    }
+  }
+  // hard constraint last: nothing is allowed inside a stone. Several passes,
+  // because a tooth caught between two overlapping stones needs a few nudges.
+  for(let it=0;it<4;it++){
+    for(let k=0;k<NT;k++){
+      const f=field(cx_[k],cy_[k]);
+      if(f.d<PAD){ const p=Math.min(PAD-f.d,GAP*3); cx_[k]+=f.gx*p; cy_[k]+=f.gy*p; }
+    }
+  }
+  for(let k=0;k<NT;k++){ pvx_[k]=cx_[k]; pvy_[k]=cy_[k]; }
+  lastPx=px; lastPy=py; hasPrev=true;
+}
+
+const DARK='#b3a488', LITE='#fffef8';
+const OX=0.9, OY=1.15;
+function seg(c,ax,ay,bx,by){
+  c.strokeStyle=DARK; c.lineWidth=2.6;
+  c.beginPath(); c.moveTo(ax-OX,ay-OY); c.lineTo(bx-OX,by-OY); c.stroke();
+  c.strokeStyle=LITE; c.lineWidth=2.0;
+  c.beginPath(); c.moveTo(ax+OX,ay+OY); c.lineTo(bx+OX,by+OY); c.stroke();
+}
+
+function addSample(px,py,tx,ty){
+  const nx=-ty, ny=tx;
+  relax(px,py,nx,ny);
+  const T=stroke.teeth;
+  for(let k=0;k<NT;k++){
+    const arr=T[k], x=cx_[k], y=cy_[k];
+    if(!arr.length){ arr.push(x,y); continue; }
+    const lx=arr[arr.length-2], ly=arr[arr.length-1];
+    const d=Math.hypot(x-lx,y-ly);
+    if(d<MINSTEP) continue;                    // spacing relaxation -> no knots
+    if(d<GAP*2.2) seg(lctx,lx,ly,x,y);         // huge jump = don't bridge it
+    arr.push(x,y);
+  }
+}
+
+function strokeStart(x,y){
+  hasPrev=false;                 // a new stroke must not inherit the last comb
+  stroke={teeth:[[],[],[],[],[]],px:x,py:y,seeded:false};
+  window.__lastTeeth=stroke.teeth;
+}
+function strokeMove(x,y){
+  if(!stroke) return;
+  let dx=x-stroke.px, dy=y-stroke.py;
+  const dist=Math.hypot(dx,dy);
+  if(dist<0.6) return;
+  const n=Math.max(1,Math.round(dist/STEP)), tx=dx/dist, ty=dy/dist;
+  for(let i=1;i<=n;i++){
+    const t=i/n;
+    addSample(stroke.px+dx*t, stroke.py+dy*t, tx, ty);
+  }
+  stroke.px=x; stroke.py=y; stroke.seeded=true;
+}
+function strokeEnd(){
+  if(stroke&&stroke.seeded){ gctx.drawImage(live,0,0,W,H); }
+  clearLive(); stroke=null;
+}
+function clearLive(){ lctx.save(); lctx.setTransform(1,0,0,1,0,0); lctx.clearRect(0,0,live.width,live.height); lctx.restore(); }
+
+// ---- sand ---------------------------------------------------------------
+let noiseTile=null;
+function makeNoise(){
+  const n=mk(); n.width=n.height=180;
+  const c=n.getContext('2d'), id=c.createImageData(180,180), d=id.data;
+  for(let i=0;i<d.length;i+=4){ const v=(Math.random()*255)|0; d[i]=d[i+1]=d[i+2]=v; d[i+3]=13; }
+  c.putImageData(id,0,0); noiseTile=n;
+}
+function paintBase(){
+  bctx.save(); bctx.setTransform(dpr,0,0,dpr,0,0);
+  const g=bctx.createLinearGradient(0,0,W*0.35,H);
+  g.addColorStop(0,'#f6f1e6'); g.addColorStop(0.5,'#f0e9da'); g.addColorStop(1,'#e8dfcc');
+  bctx.fillStyle=g; bctx.fillRect(0,0,W,H);
+  if(!noiseTile) makeNoise();
+  bctx.fillStyle=bctx.createPattern(noiseTile,'repeat'); bctx.fillRect(0,0,W,H);
+  const v=bctx.createRadialGradient(W/2,H*0.45,Math.min(W,H)*0.25,W/2,H*0.45,Math.max(W,H)*0.78);
+  v.addColorStop(0,'rgba(0,0,0,0)'); v.addColorStop(1,'rgba(110,92,64,0.13)');
+  bctx.fillStyle=v; bctx.fillRect(0,0,W,H);
+  bctx.restore();
+}
+
+// ---- stones drawing -----------------------------------------------------
+function drawStone(c,s){
+  const g=geo(s);
+  c.save();
+  c.shadowColor='rgba(96,80,58,0.42)'; c.shadowBlur=Math.max(8,g.ry*0.55); c.shadowOffsetY=Math.max(3,g.ry*0.22);
+  c.translate(g.x,g.y); c.rotate(g.rot);
+  c.save(); c.scale(g.rx,g.ry);
+  c.beginPath(); c.arc(0,0,1,0,6.2832); c.restore();
+  const grd=c.createLinearGradient(-g.rx*0.6,-g.ry*1.1,g.rx*0.7,g.ry*1.1);
+  grd.addColorStop(0,'#6e6d73'); grd.addColorStop(0.45,'#4e4d53'); grd.addColorStop(1,'#33323a');
+  c.fillStyle=grd; c.fill();
+  c.shadowColor='transparent';
+  // top-left sheen
+  c.save(); c.clip();
+  const sh=c.createRadialGradient(-g.rx*0.42,-g.ry*0.52,0,-g.rx*0.42,-g.ry*0.52,g.rx*0.95);
+  sh.addColorStop(0,'rgba(255,255,255,0.22)'); sh.addColorStop(1,'rgba(255,255,255,0)');
+  c.fillStyle=sh; c.fillRect(-g.rx,-g.ry,g.rx*2,g.ry*2);
+  c.restore();
+  c.restore();
+}
+
+// ---- dust rings on landing ---------------------------------------------
+let dust=[];
+
+// ---- state / animation --------------------------------------------------
+let fading=0;            // 1 -> 0 while smoothing
+function step(dt){
+  for(const s of stones){ if(s.t<1){ s.t=Math.min(1,s.t+dt/0.45); } }
+  for(let i=dust.length-1;i>=0;i--){ const d=dust[i]; d.t+=dt/0.6; if(d.t>=1) dust.splice(i,1); }
+  if(fading>0){
+    fading-=dt/0.55;
+    if(fading<=0){ fading=0; gctx.save(); gctx.setTransform(1,0,0,1,0,0); gctx.clearRect(0,0,grooves.width,grooves.height); gctx.restore(); }
+  }
+}
+function draw(){
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.globalAlpha=1;
+  ctx.drawImage(base,0,0,W,H);
+  ctx.globalAlpha=fading>0?fading:1;
+  ctx.drawImage(grooves,0,0,W,H);
+  ctx.globalAlpha=1;
+  ctx.drawImage(live,0,0,W,H);
+  for(const d of dust){
+    const r=d.r*(0.6+d.t*1.5);
+    ctx.strokeStyle='rgba(150,132,102,'+(0.35*(1-d.t))+')'; ctx.lineWidth=2*(1-d.t)+0.5;
+    ctx.beginPath(); ctx.ellipse(d.x,d.y,r,r*0.68,0,0,6.2832); ctx.stroke();
+  }
+  for(const s of stones) drawStone(ctx,s);
+}
+
+// ---- resize (normalized stones + stretched grooves = nothing is lost) ---
+function resize(){
+  const oldW=grooves.width, oldH=grooves.height;
+  let snap=null;
+  if(oldW>0){ snap=mk(); snap.width=oldW; snap.height=oldH; snap.getContext('2d').drawImage(grooves,0,0); }
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  S=Math.min(W,H);
+  for(const c of [cv,base,grooves,live]){ c.width=Math.max(1,W*dpr); c.height=Math.max(1,H*dpr); }
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  for(const c of [bctx,gctx,lctx]) c.setTransform(dpr,0,0,dpr,0,0);
+  gctx.lineCap='round'; gctx.lineJoin='round'; lctx.lineCap='round'; lctx.lineJoin='round';
+  metrics(); paintBase();
+  if(snap) gctx.drawImage(snap,0,0,W,H);
+}
+window.addEventListener('resize',resize);
+resize();
+
+// ---- audio: white noise through a low pass, gain rides finger speed -----
+let AC=null,gain=null,noiseSrc=null;
+function audio(){
+  if(AC) { if(AC.state==='suspended') AC.resume(); return; }
+  try{
+    AC=new (window.AudioContext||window.webkitAudioContext)();
+    const len=AC.sampleRate*2, buf=AC.createBuffer(1,len,AC.sampleRate), ch=buf.getChannelData(0);
+    for(let i=0;i<len;i++) ch[i]=Math.random()*2-1;
+    noiseSrc=AC.createBufferSource(); noiseSrc.buffer=buf; noiseSrc.loop=true;
+    const lp=AC.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=780; lp.Q.value=0.6;
+    gain=AC.createGain(); gain.gain.value=0;
+    noiseSrc.connect(lp); lp.connect(gain); gain.connect(AC.destination);
+    noiseSrc.start();
+  }catch(e){ AC=null; }
+}
+function sand(v){ if(!AC||!gain) return; try{ gain.gain.setTargetAtTime(Math.min(0.075,v),AC.currentTime,0.05); }catch(e){} }
+
+// ---- input --------------------------------------------------------------
+let down=false, holdTimer=null, downX=0, downY=0, moved=0, lastT=0, activeId=-1;
+function place(x,y,anim){
+  const r=0.05+Math.random()*0.038;
+  stones.push({nx:x/W,ny:y/H,nrx:r,nry:r*(0.62+Math.random()*0.22),
+    rot:(Math.random()-0.5)*1.4,t:anim?0:1});
+  if(anim) dust.push({x:x,y:y,r:r*S*1.3,t:0});
+  hideHint();
+}
+function emptyAt(x,y){ return field(x,y).d>Math.max(14,S*0.03); }
+
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  // One rake at a time. Without this a second finger (a thumb resting on the phone
+  // while the other hand draws) re-seeded the stroke at its own position, and the
+  // next move of the FIRST finger was measured from there -- tearing a rake line
+  // clean across the garden.
+  if(down) return;
+  activeId=e.pointerId;
+  try{cv.setPointerCapture(e.pointerId);}catch(err){}
+  audio(); down=true; downX=e.clientX; downY=e.clientY; moved=0; lastT=performance.now();
+  strokeStart(e.clientX,e.clientY);
+  clearTimeout(holdTimer);
+  holdTimer=setTimeout(()=>{
+    if(!down||moved>8) return;
+    if(emptyAt(downX,downY)){ clearLive(); stroke=null; place(downX,downY,true); }
+  },500);
+});
+cv.addEventListener('pointermove',e=>{
+  if(!down||e.pointerId!==activeId) return;
+  const now=performance.now(), dt=Math.max(8,now-lastT); lastT=now;
+  const dx=e.clientX-stroke_px(), dy=e.clientY-stroke_py();
+  moved=Math.max(moved,Math.hypot(e.clientX-downX,e.clientY-downY));
+  const sp=Math.hypot(dx,dy)/dt*1000;
+  sand(Math.min(0.075,sp*0.00006));
+  strokeMove(e.clientX,e.clientY);
+  if(moved>6) hideHint();
+});
+function stroke_px(){ return stroke?stroke.px:downX; }
+function stroke_py(){ return stroke?stroke.py:downY; }
+function up(e){ if(!down) return;
+  if(e&&e.pointerId!==undefined&&e.pointerId!==activeId) return;  // other finger lifting
+  down=false; activeId=-1; clearTimeout(holdTimer); sand(0); strokeEnd(); }
+cv.addEventListener('pointerup',up);
+cv.addEventListener('pointercancel',up);
+cv.addEventListener('pointerleave',up);
+window.addEventListener('contextmenu',e=>{ if(e.target===cv) e.preventDefault(); });
+
+let hintGone=false;
+function hideHint(){ if(hintGone)return; hintGone=true; document.getElementById('hint').style.opacity=0; }
+document.getElementById('add').onclick=()=>{
+  audio();
+  // 40 darts: take the first clear spot. If the garden is full, fall back to the
+  // ROOMIEST dart tried rather than whatever the last one happened to hit -- that
+  // used to drop a stone straight on top of an existing one.
+  let bx=0,by=0,bd=-Infinity, clear=Math.max(14,S*0.03);
+  for(let i=0;i<40;i++){
+    const x=W*(0.14+Math.random()*0.72), y=H*(0.12+Math.random()*0.34);
+    const d=field(x,y).d;
+    if(d>bd){ bd=d; bx=x; by=y; }
+    if(d>clear) break;
+  }
+  place(bx,by,true);
+};
+document.getElementById('smooth').onclick=()=>{ audio(); if(fading<=0) fading=1; };
+
+// ---- loop ---------------------------------------------------------------
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.05); last=now; step(dt); draw(); requestAnimationFrame(frame); }
+requestAnimationFrame(frame);
+
+// ---- deterministic hooks (headless verification) ------------------------
+window.__tick=(n)=>{ for(let i=0;i<n;i++){ step(1/60); } draw(); };
+window.__field=(x,y)=>{ const f=field(x,y); return {d:f.d,gx:f.gx,gy:f.gy}; };
+window.__rake=(x0,y0,x1,y1,steps)=>{
+  steps=steps||60; strokeStart(x0,y0);
+  for(let i=1;i<=steps;i++){ const t=i/steps; strokeMove(x0+(x1-x0)*t,y0+(y1-y0)*t); }
+  const t=stroke.teeth; strokeEnd(); return t;
+};
+window.__state=()=>{
+  const T=window.__lastTeeth||[];
+  let pts=0,bad=0,minD=1e9;
+  for(const a of T){ pts+=a.length/2;
+    for(let i=0;i<a.length;i+=2){
+      if(!isFinite(a[i])||!isFinite(a[i+1])) bad++;
+      else minD=Math.min(minD,field(a[i],a[i+1]).d);
+    } }
+  return {stones:stones.length,teeth:T.length,pts:pts,nan:bad,minDistToStone:minD,GAP:GAP,PAD:PAD,W:W,H:H,fading:fading};
+};
+window.__reset=()=>{ defaultStones(); dust=[]; fading=0;
+  gctx.save(); gctx.setTransform(1,0,0,1,0,0); gctx.clearRect(0,0,grooves.width,grooves.height); gctx.restore(); clearLive(); };
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>活了 · Alive</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#f4efe2;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#4a4239;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0;touch-action:none}
+  .title{position:fixed;top:14px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:20px;font-weight:800;letter-spacing:2px;text-shadow:0 1px 0 rgba(255,255,255,.8)}
+  .title span{display:block;font-size:12px;opacity:.55;margin-top:3px;font-weight:600}
+  .count{position:fixed;top:18px;right:20px;z-index:5;font-weight:800;font-size:13px;opacity:.4;pointer-events:none}
+  .dock{position:fixed;left:0;right:0;bottom:14px;z-index:6;display:flex;flex-direction:column;
+    align-items:center;gap:9px;pointer-events:none}
+  .hint{font-size:12.5px;font-weight:600;opacity:.55;pointer-events:none;transition:opacity .5s;
+    white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.7)}
+  .bar{pointer-events:auto;display:flex;gap:7px;align-items:stretch;
+    width:min(94vw,430px);
+    background:rgba(255,255,255,.78);border:1px solid rgba(150,130,100,.22);
+    padding:7px;border-radius:16px;backdrop-filter:blur(10px);
+    box-shadow:0 8px 26px rgba(150,120,80,.18)}
+  .bar button{flex:1 1 0;min-width:0;white-space:nowrap;font:inherit;font-weight:800;font-size:13px;
+    color:#4a4239;border:none;background:#fff;padding:10px 4px;border-radius:11px;cursor:pointer;
+    box-shadow:0 2px 0 rgba(150,120,80,.18);transition:transform .08s}
+  .bar button:active{transform:translateY(1px);box-shadow:0 1px 0 rgba(150,120,80,.18)}
+  .bar button.go{flex:1.15 1 0;background:linear-gradient(90deg,#ffb04d,#ff8a3d);color:#fff;
+    box-shadow:0 2px 0 rgba(180,90,20,.32);letter-spacing:1px}
+  @media (max-width:400px){ .bar button{font-size:12px;padding:10px 2px} .hint{font-size:12px} }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>活了</b><span>随便画个东西，然后按下面那个按钮</span></div>
+<div class="count" id="count"></div>
+<div class="dock">
+  <div class="hint" id="hint">✎ 用手指在纸上画一坨东西</div>
+  <div class="bar">
+    <button id="go" class="go">活！</button>
+    <button id="again">再画一只</button>
+    <button id="clr">全部清空</button>
+  </div>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const INK='#3d372f', PAPER='#f4efe2';
+const MAXN=8, DUTY=0.34;
+let W=0,H=0,dpr=1,SD=1;
+let bg=document.createElement('canvas'), bgx=bg.getContext('2d');
+let sk=document.createElement('canvas'), skx=sk.getContext('2d');
+let crs=[], drawing=false, lastP=null, inked=false, tNow=0;
+
+function makeBG(){
+  bg.width=Math.max(1,W); bg.height=Math.max(1,H);
+  bgx.fillStyle=PAPER; bgx.fillRect(0,0,W,H);
+  // extremely faint paper grain
+  for(let i=0;i<W*H/260;i++){
+    const x=Math.random()*W, y=Math.random()*H, a=Math.random()*0.045;
+    bgx.fillStyle='rgba(120,100,70,'+a.toFixed(3)+')';
+    bgx.fillRect(x,y,1.4,1.4);
+  }
+  // soft vignette
+  const g=bgx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.35,W/2,H/2,Math.max(W,H)*0.75);
+  g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(120,95,55,0.07)');
+  bgx.fillStyle=g; bgx.fillRect(0,0,W,H);
+}
+function resize(){
+  const oW=W,oH=H;
+  dpr=Math.min(window.devicePixelRatio||1,2); SD=dpr;
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  // sketch layer (device px), preserve what's already drawn
+  const old=document.createElement('canvas'); old.width=sk.width; old.height=sk.height;
+  if(sk.width&&sk.height) old.getContext('2d').drawImage(sk,0,0);
+  sk.width=Math.max(1,Math.round(W*SD)); sk.height=Math.max(1,Math.round(H*SD));
+  skx.setTransform(1,0,0,1,0,0); skx.clearRect(0,0,sk.width,sk.height);
+  if(old.width>1&&old.height>1) skx.drawImage(old,0,0,old.width,old.height,0,0,sk.width,sk.height);
+  skx.lineCap='round'; skx.lineJoin='round'; skx.strokeStyle=INK;
+  makeBG();
+  // remap creatures proportionally
+  if(oW>0&&oH>0&&(oW!==W||oH!==H)){
+    const rx=W/oW, ry=H/oH;
+    for(const c of crs){
+      c.x*=rx; c.groundY*=ry;
+      for(const L of c.legs){ L.footX*=rx; L.liftX*=rx; L.landX*=rx; L.footY*=ry; }
+      c.x=Math.max(c.R,Math.min(W-c.R,c.x));
+      c.groundY=Math.min(c.groundY,floorY());
+    }
+  }
+}
+window.addEventListener('resize',resize); resize();
+
+/* ---------- audio ---------- */
+let actx=null,master=null;
+function initAudio(){ if(actx)return; try{
+  actx=new(window.AudioContext||window.webkitAudioContext)();
+  master=actx.createGain(); master.gain.value=0.35; master.connect(actx.destination);
+}catch(e){} }
+function chirp(){ if(!actx)return; const t0=actx.currentTime;
+  const o=actx.createOscillator(); o.type='triangle';
+  o.frequency.setValueAtTime(180,t0); o.frequency.exponentialRampToValueAtTime(720,t0+0.16);
+  const g=actx.createGain(); g.gain.setValueAtTime(0.0001,t0);
+  g.gain.exponentialRampToValueAtTime(0.5,t0+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.22);
+  o.connect(g); g.connect(master); o.start(t0); o.stop(t0+0.24); }
+function tock(f){ if(!actx)return; const t0=actx.currentTime;
+  const o=actx.createOscillator(); o.type='square'; o.frequency.value=f;
+  const g=actx.createGain(); g.gain.setValueAtTime(0.07,t0); g.gain.exponentialRampToValueAtTime(0.0001,t0+0.035);
+  o.connect(g); g.connect(master); o.start(t0); o.stop(t0+0.05); }
+
+/* ---------- drawing ---------- */
+function strokeTo(x,y){
+  skx.lineWidth=8*SD;
+  skx.beginPath();
+  if(lastP) skx.moveTo(lastP.x*SD,lastP.y*SD); else skx.moveTo(x*SD-0.01,y*SD);
+  skx.lineTo(x*SD,y*SD); skx.stroke();
+  lastP={x,y}; inked=true;
+}
+// Hit test the thing you can actually see (body box + the legs under it),
+// not its bounding circle: on a long flat scribble that circle reaches ~120px
+// into empty paper, so you'd "poke" a creature you weren't anywhere near
+// and lose that whole area for drawing.
+function pokeHit(x,y){
+  for(let i=crs.length-1;i>=0;i--){ const c=crs[i];
+    const px=Math.max(13,c.bw*0.08), py=13;
+    if(x>c.x-c.bw*0.5-px && x<c.x+c.bw*0.5+px &&
+       y>c.y-c.bh*0.5-py && y<c.groundY+py) return c; }
+  return null;
+}
+// Creatures must not walk underneath the button dock — feet vanishing behind
+// the bar is the single ugliest thing you can see on a phone, where the
+// bottom third of the paper is exactly where a thumb naturally draws.
+function floorY(){
+  const d=document.querySelector('.dock');
+  const t=d?d.getBoundingClientRect().top:H;
+  return Math.max(H*0.34,Math.min(H-14,t-8));
+}
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault(); initAudio(); if(actx&&actx.state==='suspended')actx.resume();
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  const c=pokeHit(e.clientX,e.clientY);
+  if(c){ const s=(e.clientX<c.x)?1:-1; c.kick=s*260; c.wob=1; tock(150); return; }
+  drawing=true; lastP=null; strokeTo(e.clientX,e.clientY); setHint('按「活！」看它站起来');
+});
+cv.addEventListener('pointermove',e=>{ if(drawing) strokeTo(e.clientX,e.clientY); });
+cv.addEventListener('pointerup',()=>{drawing=false;lastP=null;});
+cv.addEventListener('pointercancel',()=>{drawing=false;lastP=null;});
+
+let hintT=null;
+function setHint(s){ const h=document.getElementById('hint'); h.textContent=s; h.style.opacity=.55;
+  if(hintT)clearTimeout(hintT); }
+function flashHint(s){ setHint(s); hintT=setTimeout(()=>{document.getElementById('hint').style.opacity=.2;},2200); }
+
+/* ---------- birth: rasterize sketch -> creature ---------- */
+function birth(){
+  if(!inked){ flashHint('先在纸上画点什么'); return; }
+  if(crs.length>=MAXN){ flashHint('太挤了，同屏最多 8 只'); return; }
+  let dat;
+  try{ dat=skx.getImageData(0,0,sk.width,sk.height); }catch(e){ return; }
+  const d=dat.data, sw=sk.width, sh=sk.height;
+  let x0=1e9,y0=1e9,x1=-1,y1=-1;
+  for(let y=0;y<sh;y++){ const row=y*sw*4;
+    for(let x=0;x<sw;x++){ if(d[row+x*4+3]>16){ if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; } } }
+  if(x1<0){ inked=false; flashHint('先在纸上画点什么'); return; }
+  const cw=x1-x0+1, ch=y1-y0+1;
+  // crop into its own canvas
+  const img=document.createElement('canvas'); img.width=cw; img.height=ch;
+  img.getContext('2d').drawImage(sk,x0,y0,cw,ch,0,0,cw,ch);
+  // bottom silhouette: lowest inked pixel per column
+  const NC=28, low=new Array(NC).fill(-1), colX=new Array(NC).fill(0);
+  for(let i=0;i<NC;i++){
+    const a=Math.floor(i*cw/NC), b=Math.max(a+1,Math.floor((i+1)*cw/NC));
+    colX[i]=(a+b-1)/2; let best=-1;
+    for(let x=a;x<b;x++) for(let y=ch-1;y>=0;y--){
+      const gx=x0+x, gy=y0+y;
+      if(d[(gy*sw+gx)*4+3]>16){ if(y>best)best=y; break; } }
+    low[i]=best;
+  }
+  let valid=[]; for(let i=0;i<NC;i++) if(low[i]>=0) valid.push(i);
+  // Only hang legs where the silhouette is genuinely near its lowest point.
+  // (On a round blob the far-left column bottoms out at the equator — legs
+  //  sprouting from the middle of the body read as a bug, not as a joke.)
+  if(valid.length){
+    const deepest=Math.max(...valid.map(i=>low[i]));
+    let fallback=null;
+    for(const band of [0.24,0.4,0.65,1.01]){
+      const cand=valid.filter(i=>low[i]>=deepest-ch*band);
+      if(cand.length<2) continue;
+      if(!fallback) fallback=cand;
+      // also want a stance wide enough to stand on, not all legs on one dangling tail
+      if(colX[cand[cand.length-1]]-colX[cand[0]] >= cw*0.35){ fallback=cand; break; }
+    }
+    if(fallback) valid=fallback;
+  }
+
+  // sizing: css px per image px
+  let u=1/SD;
+  const cssW=cw*u, cssH=ch*u, big=Math.max(cssW,cssH);
+  const MIN=54, MAXD=Math.min(H*0.4,260);
+  if(big<MIN) u*=MIN/big; else if(big>MAXD) u*=MAXD/big;
+  const bw=cw*u, bh=ch*u;
+
+  // leg attachment points (image coords), forced onto bottom silhouette
+  let anchors=[];
+  if(valid.length>=2){
+    let n=Math.max(2,Math.min(4,Math.round(bw/58)+1));
+    if(valid.length<n) n=valid.length;
+    for(let i=0;i<n;i++){
+      const idx=valid[Math.round(i*(valid.length-1)/(n-1))];
+      anchors.push({ax:colX[idx], ay:low[idx]});
+    }
+    // de-dup identical picks
+    anchors=anchors.filter((a,i,arr)=>i===0||Math.abs(a.ax-arr[i-1].ax)>1e-6);
+    if(anchors.length<2) anchors=[];
+  }
+  if(anchors.length<2){ // degenerate: two legs at the middle of the bottom edge
+    anchors=[{ax:cw*0.35,ay:ch-1},{ax:cw*0.65,ay:ch-1}];
+  }
+
+  const segL=Math.max(11,Math.min(46,bh*0.42));
+  const stand=segL*2*0.8;
+  const groundY=Math.min(y1/SD+stand*0.72, floorY());
+  const v=(26+Math.random()*26);
+  const T=0.52+Math.random()*0.22;
+  const dir=Math.random()<0.5?-1:1;
+
+  const c={
+    img,cw,ch,u,bw,bh,
+    x:Math.max(bw*0.5+6,Math.min(W-bw*0.5-6,(x0+x1)/2/SD)),
+    groundY, segL, stand,
+    dir, face:dir, v, T, stride:v*T, t:Math.random(),
+    R:Math.max(bw,bh)*0.46+segL*0.2,
+    state:'rise', rt:0, kick:0, wob:0,
+    tone:280+Math.random()*260,
+    legs:anchors.map((a,i)=>({
+      ox:(a.ax-cw/2)*u, oy:(a.ay-ch/2)*u,
+      phase:(anchors.length===3? i/3 : (i%2)*0.5),
+      footX:0,footY:groundY,liftX:0,landX:0,planted:true
+    }))
+  };
+  // Each leg gets its own length so it actually reaches the floor: a hip that
+  // sits higher on the silhouette needs a longer leg, otherwise its foot hangs
+  // in mid-air and the whole thing stops reading as "standing".
+  // ...plus headroom for the body's roll: a hip sitting |ox| out from the
+  // centre swings |ox|*sin(wobble) up and down, and on a wide flat scribble
+  // that lever is longer than the leg itself — without this the foot gets
+  // asked for more than 2*seg and drawLeg silently clamps it, i.e. the foot
+  // you see stops being the foot the physics tracks, and it skates.
+  for(const L of c.legs) L.seg=Math.max(8,(stand+bh/2-L.oy+Math.abs(L.ox)*0.15)/1.6);
+  // Never ask a leg for a stride it cannot cover; slow the body down instead,
+  // so stride === v * T still holds exactly and the feet keep their grip.
+  const minSeg=Math.min(...c.legs.map(L=>L.seg)), maxStride=minSeg*1.05;
+  if(c.stride>maxStride){ c.stride=maxStride; c.v=c.stride/c.T; }
+  // starts lying flat on the ground, then stands up
+  c.y=groundY-c.bh/2;
+  for(const L of c.legs){ L.footX=c.x+L.ox*c.face-c.dir*c.stride*0.2; L.footY=groundY; }
+  crs.push(c);
+  skx.clearRect(0,0,sk.width,sk.height); inked=false; lastP=null;
+  initAudio(); chirp();
+  updCount();
+  flashHint(crs.length>=MAXN?'满员了 · 戳一下它们试试':'再画一只，或者戳一下它');
+  return c;
+}
+
+function updCount(){ document.getElementById('count').textContent=crs.length?crs.length+' 只':''; }
+
+/* ---------- step ---------- */
+const smooth=t=>t*t*(3-2*t);
+function step(dt){
+  tNow+=dt;
+  for(const c of crs){
+    let dx=0;
+    if(c.state==='rise'){
+      c.rt+=dt;
+      const p=Math.min(1,c.rt/0.85);
+      c.legScale=smooth(Math.min(1,p/0.7));
+      c.wobble=(1-p)*Math.sin(c.rt*26)*0.16;
+      const target=c.groundY-c.stand*c.legScale-c.bh/2;
+      c.y=(c.groundY-c.bh/2)+(target-(c.groundY-c.bh/2))*smooth(p);
+      if(p>=1){ c.state='walk'; c.legScale=1; c.wobble=0;
+        for(const L of c.legs){ L.footX=c.x+L.ox*c.face; L.footY=c.groundY; L.planted=true; } }
+    } else {
+      c.legScale=1;
+      dx=c.dir*c.v*dt;
+      if(c.kick!==0){ const k=c.kick*dt; dx+=k; c.kick*=Math.pow(0.02,dt); if(Math.abs(c.kick)<3)c.kick=0;
+        for(const L of c.legs) L.footX+=k; }
+      c.wob=Math.max(0,c.wob-dt*1.6);
+      c.x+=dx;
+      c.t+=dt/c.T;
+      const bob=Math.sin(c.t*Math.PI*4)*Math.min(4,c.bh*0.06);
+      c.wobble=Math.sin(c.t*Math.PI*4+0.9)*0.045+Math.sin(tNow*22)*0.09*c.wob;
+      c.y=c.groundY-c.stand-c.bh/2+bob;
+      // edges: turn around
+      if(c.x<c.R&&c.dir<0){ c.dir=1; c.face=1; replant(c); }
+      if(c.x>W-c.R&&c.dir>0){ c.dir=-1; c.face=-1; replant(c); }
+      c.x=Math.max(c.R*0.4,Math.min(W-c.R*0.4,c.x));
+      // legs
+      for(const L of c.legs){
+        const hip=hipOf(c,L);
+        let p=(c.t+L.phase)%1; if(p<0)p+=1;
+        if(p<DUTY){
+          if(L.planted){ L.planted=false; L.liftX=L.footX; L.landX=L.footX+c.dir*c.stride; }
+          const s=smooth(p/DUTY);
+          L.footX=L.liftX+(L.landX-L.liftX)*s;
+          L.footY=c.groundY-Math.sin(Math.PI*p/DUTY)*(L.seg*0.34);
+        } else {
+          if(!L.planted){ L.planted=true; L.footX=L.landX; L.footY=c.groundY; tock(c.tone); }
+          L.footY=c.groundY;
+        }
+        L.hipX=hip.x; L.hipY=hip.y;
+      }
+    }
+    if(c.state==='rise'){ for(const L of c.legs){ const hip=hipOf(c,L); L.hipX=hip.x; L.hipY=hip.y;
+      L.footX=c.x+L.ox*c.face; L.footY=c.groundY; } }
+    if(!isFinite(c.x)) c.x=W/2;
+  }
+  // round-round collisions
+  for(let i=0;i<crs.length;i++) for(let j=i+1;j<crs.length;j++){
+    const a=crs[i],b=crs[j];
+    const ay=a.y+a.bh/2, by=b.y+b.bh/2;
+    if(Math.abs(ay-by)>Math.max(a.R,b.R)*1.5) continue;
+    const dx=b.x-a.x, dd=Math.abs(dx), min=(a.R+b.R)*0.86;
+    if(dd<min&&dd>0.01){
+      const push=(min-dd)/2, s=dx>0?1:-1;
+      shift(a,-s*push); shift(b,s*push);
+      if(a.dir*s>0&&b.dir*s<0){ a.dir=-a.dir; a.face=a.dir; b.dir=-b.dir; b.face=b.dir; replant(a); replant(b); }
+    }
+  }
+}
+function shift(c,dx){ c.x+=dx; for(const L of c.legs) L.footX+=dx; }
+function replant(c){ for(const L of c.legs){ L.footX=c.x+L.ox*c.face; L.landX=L.footX; L.liftX=L.footX; L.planted=true; } }
+function hipOf(c,L){
+  const a=c.wobble||0, ca=Math.cos(a), sa=Math.sin(a);
+  const ox=L.ox*c.face, oy=L.oy;
+  return {x:c.x+ox*ca-oy*sa, y:c.y+ox*sa+oy*ca};
+}
+
+/* ---------- draw ---------- */
+function drawLeg(c,L){
+  const hx=L.hipX, hy=L.hipY, fx=L.footX, fy=L.footY;
+  let dx=fx-hx, dy=fy-hy, d=Math.hypot(dx,dy);
+  const seg=(L.seg||c.segL)*(c.legScale===undefined?1:c.legScale);
+  if(seg<0.5) return;
+  if(d<0.01){ d=0.01; dy=0.01; }
+  const dd=Math.min(d,seg*2*0.995);
+  const base=Math.atan2(dy,dx);
+  const a=Math.acos(Math.max(-1,Math.min(1,dd/(2*seg))));
+  const sign=-c.dir;
+  const ka=base+a*sign;
+  const kx=hx+Math.cos(ka)*seg, ky=hy+Math.sin(ka)*seg;
+  const ex=hx+dx/d*dd, ey=hy+dy/d*dd;
+  ctx.lineWidth=Math.max(2,seg*0.14);
+  ctx.strokeStyle=INK; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.beginPath(); ctx.moveTo(hx,hy); ctx.lineTo(kx,ky); ctx.lineTo(ex,ey); ctx.stroke();
+  // foot
+  ctx.lineWidth=Math.max(2.4,seg*0.17);
+  ctx.beginPath(); ctx.moveTo(ex-c.face*seg*0.12,ey); ctx.lineTo(ex+c.face*seg*0.22,ey); ctx.stroke();
+}
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  ctx.drawImage(bg,0,0,W,H);
+  // current sketch
+  ctx.drawImage(sk,0,0,W,H);
+  for(const c of crs){
+    // shadow
+    ctx.fillStyle='rgba(110,90,60,0.10)';
+    ctx.beginPath(); ctx.ellipse(c.x,c.groundY+2,c.bw*0.42,Math.max(2.5,c.bh*0.05),0,0,6.283); ctx.fill();
+    for(const L of c.legs) drawLeg(c,L);
+    ctx.save();
+    ctx.translate(c.x,c.y); ctx.rotate(c.wobble||0); ctx.scale(c.face,1);
+    ctx.drawImage(c.img,-c.bw/2,-c.bh/2,c.bw,c.bh);
+    ctx.restore();
+  }
+}
+
+let last=performance.now(),acc=0;
+function frame(now){
+  let dt=(now-last)/1000; last=now;
+  if(!(dt>0)) dt=0; dt=Math.min(dt,0.1);
+  acc+=dt;
+  while(acc>1/120){ const s=Math.min(1/60,acc); step(s); acc-=s; if(acc<1e-4){acc=0;break;} }
+  draw(); requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------- buttons ---------- */
+document.getElementById('go').onclick=()=>{ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); birth(); };
+document.getElementById('again').onclick=()=>{
+  skx.clearRect(0,0,sk.width,sk.height); inked=false; lastP=null;
+  setHint(crs.length>=MAXN?'满员了，先清空再画':'✎ 再画一坨，然后按「活！」');
+};
+document.getElementById('clr').onclick=()=>{
+  crs=[]; skx.clearRect(0,0,sk.width,sk.height); inked=false; lastP=null;
+  updCount(); setHint('✎ 用手指在纸上画一坨东西');
+};
+
+/* ---------- deterministic test hook ---------- */
+window.__tick=(n)=>{ for(let i=0;i<(n||1);i++) step(1/60); draw(); return crs.length; };
+window.__state=()=>crs.map(c=>({x:+c.x.toFixed(2),y:+c.y.toFixed(2),dir:c.dir,legs:c.legs.length,
+  state:c.state,groundY:+c.groundY.toFixed(1),bw:+c.bw.toFixed(1),bh:+c.bh.toFixed(1),
+  feet:c.legs.map(L=>+L.footX.toFixed(2)),
+  maxStretch:+Math.max(...c.legs.map(L=>Math.hypot(L.footX-L.hipX,L.footY-L.hipY)/(2*L.seg))).toFixed(3),
+  legSpread:+((Math.max(...c.legs.map(L=>L.ox))-Math.min(...c.legs.map(L=>L.ox)))/c.bw).toFixed(2),
+  lowestLegFrac:+Math.min(...c.legs.map(L=>(L.oy+c.bh/2)/c.bh)).toFixed(2)}));
+window.__draw=(pts)=>{ lastP=null; for(const p of pts) strokeTo(p[0],p[1]); };
+window.__birth=birth;
+window.__clear=()=>document.getElementById('clr').onclick();
+})();
+</script>
+</body>
+</html>

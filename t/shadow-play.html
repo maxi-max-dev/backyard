@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>彩色的影子 · Shadow Play</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#f2eef6;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#3b3346;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0;touch-action:none}
+  .title{position:fixed;top:14px;left:14px;z-index:5;pointer-events:none;color:#fff;
+    background:rgba(26,16,36,.44);padding:8px 13px;border-radius:13px;backdrop-filter:blur(7px);
+    text-shadow:0 1px 2px rgba(0,0,0,.5)}
+  .title b{font-size:19px;font-weight:800;letter-spacing:2px}
+  .title span{display:block;font-size:12px;opacity:.92;margin-top:3px;font-weight:600;letter-spacing:.3px;max-width:86vw}
+  .dock{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;pointer-events:none;
+    display:flex;flex-direction:column;align-items:center;gap:7px;max-width:96vw}
+  .bar{pointer-events:auto;display:flex;gap:7px;flex-wrap:wrap;justify-content:center;max-width:96vw;
+    background:rgba(255,255,255,.82);border:1px solid rgba(120,90,150,.18);
+    padding:8px;border-radius:16px;backdrop-filter:blur(10px);box-shadow:0 8px 28px rgba(60,20,80,.28)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#42364f;border:none;background:#fff;
+    padding:9px 13px;border-radius:11px;cursor:pointer;box-shadow:0 2px 0 rgba(90,50,120,.18);transition:transform .08s}
+  .bar button:active{transform:translateY(1px);box-shadow:0 1px 0 rgba(90,50,120,.18)}
+  .hint{font-size:13px;font-weight:600;color:#fff;opacity:.95;pointer-events:none;transition:opacity .6s;
+    white-space:nowrap;background:rgba(26,16,36,.46);padding:5px 13px;border-radius:999px;
+    backdrop-filter:blur(7px);text-shadow:0 1px 2px rgba(0,0,0,.5)}
+  /* narrow phones: the hint sets the dock width, so the bar must not be squeezed into two rows */
+  @media (max-width:460px){
+    .dock{width:96vw}
+    .bar{width:100%;flex-wrap:nowrap;gap:6px;padding:7px}
+    .bar button{flex:1 1 0;min-width:0;white-space:nowrap;font-size:12.5px;padding:10px 6px}
+    .hint{font-size:12px;padding:5px 11px}
+    .title b{font-size:17px}
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>彩色的影子</b><span>两盏灯，猜猜蓝灯照出的影子是什么颜色</span></div>
+<div class="dock">
+  <div class="hint" id="hint">🔦 拖物体、拖灯，小圆点调远近</div>
+  <div class="bar">
+    <button id="addObj">＋ 加个东西</button>
+    <button id="addLight">💚 加绿灯</button>
+    <button id="reset">↻ 重来</button>
+  </div>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d',{willReadFrequently:true});
+// two fixed offscreen buffers, never re-created per frame
+const maskCv=document.createElement('canvas'), maskCtx=maskCv.getContext('2d');
+const lampCv=document.createElement('canvas'), lampCtx=lampCv.getContext('2d');
+let W=0,H=0,dpr=1,R0=34;
+
+const LIGHT_DEFS=[
+  {name:'red',  col:[255, 62, 52]},
+  {name:'blue', col:[ 66,112,255]},
+  {name:'green',col:[ 74,232,110]},
+];
+let lights=[], objs=[], samples=30, needs=true, BLUR=true;
+
+// ---- golden-angle disk sampling: isotropic penumbra ----
+function diskPts(n){const a=[],g=2.3999632;for(let i=0;i<n;i++){const r=Math.sqrt((i+0.5)/n),th=i*g;a.push([Math.cos(th)*r,Math.sin(th)*r]);}return a;}
+const SAMPLE_CACHE={};
+function sampleSet(n){return SAMPLE_CACHE[n]||(SAMPLE_CACHE[n]=diskPts(n));}
+
+function shapeVerts(kind){
+  const v=[];
+  if(kind==='square'){for(let i=0;i<4;i++){const a=i/4*6.283185+0.7853;v.push([Math.cos(a),Math.sin(a)]);}}
+  else if(kind==='hex'){for(let i=0;i<6;i++){const a=i/6*6.283185-0.26;v.push([Math.cos(a),Math.sin(a)]);}}
+  else {for(let i=0;i<12;i++){const a=i/12*6.283185;v.push([Math.cos(a),Math.sin(a)]);}}
+  return v;
+}
+function mkObj(kind,fx,fy,z){return {kind,x:W*fx,y:H*fy,z,rot:0,unit:shapeVerts(kind)};}
+function visR(o){return R0*(1+o.z*0.9);}          // bigger = nearer the lamps = softer shadow
+function mag(o){return 1/(1-o.z);}                 // wall-projection magnification
+
+function reset(){
+  // lamps flank the objects: each object then throws one shadow outward (clean red / clean blue)
+  // and one inward, where they cross each other into true black.
+  const narrow=W<600, sp=narrow?0.42:0.40, ly=H*0.26, zs=narrow?0.85:1;
+  lights=[
+    {...LIGHT_DEFS[0], x:W*(0.5-sp/2), y:ly, r:20},
+    {...LIGHT_DEFS[1], x:W*(0.5+sp/2), y:ly, r:20},
+  ];
+  objs=[ mkObj('square',0.36,0.45,0.42*zs), mkObj('hex',0.50,0.51,0.36*zs), mkObj('circle',0.62,0.44,0.46*zs) ];
+  syncBtns(); needs=true;
+}
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  const oW=W,oH=H;
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  for(const c of [cv,maskCv,lampCv]){c.width=Math.max(1,Math.round(W*dpr));c.height=Math.max(1,Math.round(H*dpr));}
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  for(const c of [ctx,maskCtx,lampCtx]) c.setTransform(dpr,0,0,dpr,0,0);
+  R0=Math.max(22,Math.min(38,Math.min(W,H)*0.055));
+  const bar=document.querySelector('.bar');
+  dockTop=bar?bar.getBoundingClientRect().top:H-90;
+  if(oW>0&&oH>0){ const sx=W/oW, sy=H/oH;      // keep the user's arrangement across resizes
+    for(const l of lights){l.x*=sx;l.y*=sy;}
+    for(const o of objs){o.x*=sx;o.y*=sy;} }
+  needs=true;
+}
+
+// ---- shadow geometry: object polygon scaled about the light sample, onto the wall ----
+function addShadow(c,o,lx,ly){
+  const m=mag(o), rv=visR(o), u=o.unit, ca=Math.cos(o.rot), sa=Math.sin(o.rot);
+  for(let i=0;i<u.length;i++){
+    const px=o.x+(u[i][0]*ca-u[i][1]*sa)*rv, py=o.y+(u[i][0]*sa+u[i][1]*ca)*rv;
+    const sx=lx+(px-lx)*m, sy=ly+(py-ly)*m;
+    i? c.lineTo(sx,sy) : c.moveTo(sx,sy);
+  }
+  c.closePath();
+}
+
+function render(){
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='#0d0c13'; ctx.fillRect(0,0,W,H);   // unlit wall
+  const pts=sampleSet(samples), a=1/samples, diag=Math.hypot(W,H);
+
+  for(const L of lights){
+    // 1) coverage mask: one fill per light-sample so overlaps never double-count
+    maskCtx.setTransform(1,0,0,1,0,0); maskCtx.clearRect(0,0,maskCv.width,maskCv.height);
+    maskCtx.setTransform(dpr,0,0,dpr,0,0);
+    maskCtx.globalCompositeOperation='lighter';
+    maskCtx.fillStyle='rgba(255,255,255,'+a+')';
+    for(const s of pts){
+      const lx=L.x+s[0]*L.r, ly=L.y+s[1]*L.r;
+      maskCtx.beginPath();
+      for(const o of objs) addShadow(maskCtx,o,lx,ly);
+      maskCtx.fill();
+    }
+    // 2) flood this lamp's colour, then carve the shadows out of it
+    lampCtx.setTransform(dpr,0,0,dpr,0,0);
+    lampCtx.globalCompositeOperation='source-over';
+    lampCtx.clearRect(0,0,W,H);
+    const g=lampCtx.createRadialGradient(L.x,L.y,0,L.x,L.y,diag*0.95);
+    const c=L.col, base='rgba('+c[0]+','+c[1]+','+c[2]+',';
+    g.addColorStop(0,base+'1)'); g.addColorStop(0.5,base+'0.82)'); g.addColorStop(1,base+'0.5)');
+    lampCtx.fillStyle=g; lampCtx.fillRect(0,0,W,H);
+    lampCtx.globalCompositeOperation='destination-out';
+    if(BLUR) lampCtx.filter='blur(1.1px)';   // kills the contour banding between coverage steps
+    lampCtx.drawImage(maskCv,0,0,W,H);
+    lampCtx.filter='none';
+    lampCtx.globalCompositeOperation='source-over';
+    // 3) real light is additive: red+blue=magenta, all three=white
+    ctx.globalCompositeOperation='lighter';
+    ctx.drawImage(lampCv,0,0,W,H);
+  }
+
+  // objects: we see their unlit back, so dark silhouettes floating off the wall
+  ctx.globalCompositeOperation='source-over';
+  for(const o of objs){
+    const rv=visR(o), u=o.unit, ca=Math.cos(o.rot), sa=Math.sin(o.rot);
+    ctx.beginPath();
+    for(let i=0;i<u.length;i++){
+      const px=o.x+(u[i][0]*ca-u[i][1]*sa)*rv, py=o.y+(u[i][0]*sa+u[i][1]*ca)*rv;
+      i?ctx.lineTo(px,py):ctx.moveTo(px,py);
+    }
+    ctx.closePath();
+    ctx.fillStyle='rgba(14,12,20,.94)'; ctx.fill();
+    ctx.lineWidth=1.5; ctx.strokeStyle='rgba(255,255,255,.42)'; ctx.stroke();
+    // depth grip
+    const hx=o.x+Math.cos(-0.72)*(rv+13), hy=o.y+Math.sin(-0.72)*(rv+13);
+    ctx.beginPath(); ctx.arc(hx,hy,5.5,0,6.283);
+    ctx.fillStyle='rgba(255,255,255,.72)'; ctx.fill();
+    ctx.strokeStyle='rgba(20,10,30,.5)'; ctx.lineWidth=1; ctx.stroke();
+  }
+  // lamps: additive halo, then an opaque coloured bulb so it reads as "the red one / the blue one"
+  ctx.globalCompositeOperation='lighter';
+  for(const L of lights){
+    const c=L.col, gg=ctx.createRadialGradient(L.x,L.y,0,L.x,L.y,80);
+    gg.addColorStop(0,'rgba('+c[0]+','+c[1]+','+c[2]+',.85)');
+    gg.addColorStop(0.3,'rgba('+c[0]+','+c[1]+','+c[2]+',.3)');
+    gg.addColorStop(1,'rgba('+c[0]+','+c[1]+','+c[2]+',0)');
+    ctx.fillStyle=gg; ctx.beginPath(); ctx.arc(L.x,L.y,80,0,6.283); ctx.fill();
+  }
+  ctx.globalCompositeOperation='source-over';
+  for(const L of lights){ const c=L.col;
+    ctx.beginPath(); ctx.arc(L.x,L.y,15,0,6.283);
+    ctx.fillStyle='rgba(22,16,30,.55)'; ctx.fill();       // dark collar separates it from the bright wall
+    ctx.beginPath(); ctx.arc(L.x,L.y,11,0,6.283);
+    ctx.fillStyle='rgb('+c[0]+','+c[1]+','+c[2]+')'; ctx.fill();
+    ctx.beginPath(); ctx.arc(L.x-2.5,L.y-2.5,3.6,0,6.283);
+    ctx.fillStyle='rgba(255,255,255,.9)'; ctx.fill();
+  }
+}
+
+function frame(){ if(needs){needs=false; render();} requestAnimationFrame(frame); }
+
+// ---- input ----
+let grab=null, settle=0;
+function d2(x,y,px,py){return (x-px)*(x-px)+(y-py)*(y-py);}
+function pick(x,y){
+  // lamps sit on top of everything, so they win first
+  for(let i=lights.length-1;i>=0;i--){ const L=lights[i]; if(d2(x,y,L.x,L.y)<26*26) return {t:'light',L}; }
+  // then strict z-order per object: an object's own grip only beats things drawn *below* it,
+  // never the body of an object stacked on top of it
+  for(let i=objs.length-1;i>=0;i--){ const o=objs[i], rv=visR(o);
+    const hx=o.x+Math.cos(-0.72)*(rv+13), hy=o.y+Math.sin(-0.72)*(rv+13);
+    if(d2(x,y,hx,hy)<22*22) return {t:'depth',o};
+    const r=Math.max(rv+8,26);
+    if(d2(x,y,o.x,o.y)<r*r) return {t:'obj',o,dx:o.x-x,dy:o.y-y}; }
+  return null;
+}
+// keep every piece on the wall AND clear of the toolbar, so nothing can be dragged
+// somewhere it can never be picked up again
+let dockTop=1e9;
+function clampView(p){ p.x=Math.max(8,Math.min(W-8,p.x));
+  p.y=Math.max(8,Math.min(Math.max(H*0.35,Math.min(H-8,dockTop-10)),p.y)); }
+function clampLight(L){                     // never let a lamp sit inside an object
+  for(const o of objs){ const mn=visR(o)*0.55+10, dx=L.x-o.x, dy=L.y-o.y, d=Math.hypot(dx,dy);
+    if(d<mn){ const k=d<1e-3?1:mn/d; L.x=o.x+(d<1e-3?mn:dx*k); L.y=o.y+(d<1e-3?0:dy*k); } }
+}
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  const g=pick(e.clientX,e.clientY); if(!g)return;
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  grab=g; samples=12; needs=true; hideHint(); unlock();
+});
+cv.addEventListener('pointermove',e=>{
+  if(!grab)return;
+  const x=e.clientX,y=e.clientY;
+  // nothing may leave the wall: a piece dragged off-screen would be gone for good
+  if(grab.t==='obj'){ grab.o.x=x+grab.dx; grab.o.y=y+grab.dy; clampView(grab.o); }
+  else if(grab.t==='light'){ grab.L.x=x; grab.L.y=y; clampView(grab.L); clampLight(grab.L); clampView(grab.L); }
+  else if(grab.t==='depth'){ const d=Math.hypot(x-grab.o.x,y-grab.o.y);
+    grab.o.z=Math.max(0.08,Math.min(0.72,((d-13)/R0-1)/0.9)); }
+  needs=true;
+});
+function release(){ if(!grab)return; grab=null; samples=30; needs=true; }
+cv.addEventListener('pointerup',release);
+cv.addEventListener('pointercancel',release);
+
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+
+// ---- tiny switch click ----
+let ac=null;
+function unlock(){ if(!ac){ try{ac=new (window.AudioContext||window.webkitAudioContext)();}catch(_){ac=null;} } if(ac&&ac.state==='suspended')ac.resume(); }
+function click(){ if(!ac)return; const t=ac.currentTime,o=ac.createOscillator(),g=ac.createGain();
+  o.type='square'; o.frequency.setValueAtTime(1150,t); o.frequency.exponentialRampToValueAtTime(380,t+0.035);
+  g.gain.setValueAtTime(0.06,t); g.gain.exponentialRampToValueAtTime(0.0005,t+0.05);
+  o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t+0.06); }
+
+const addObjBtn=document.getElementById('addObj'), addLightBtn=document.getElementById('addLight');
+function syncBtns(){
+  const full=objs.length>=8;
+  addObjBtn.disabled=full; addObjBtn.style.opacity=full?0.4:1;
+  addLightBtn.textContent=lights.length>=3?'🚫 关绿灯':'💚 加绿灯';
+}
+addObjBtn.onclick=()=>{ unlock(); if(objs.length>=8)return;
+  // golden-angle spiral with a growing radius, so new pieces don't land on the old ones
+  const k=objs.length, kinds=['square','hex','circle'], a=k*2.3999632, rr=0.15+k*0.028;
+  const o=mkObj(kinds[k%3],0.5,0.52,0.2+((k*0.13)%0.42));
+  o.x=W*0.5+Math.cos(a)*W*rr; o.y=H*0.52+Math.sin(a)*H*(rr*1.15); o.rot=a*0.5;
+  o.x=Math.max(R0*2,Math.min(W-R0*2,o.x)); o.y=Math.max(H*0.22,Math.min(H*0.72,o.y));
+  objs.push(o); syncBtns(); hideHint(); needs=true; click(); };
+addLightBtn.onclick=()=>{ unlock();
+  if(lights.length>=3) lights.pop();
+  else lights.push({...LIGHT_DEFS[2], x:W*0.5, y:H*0.74, r:20});
+  syncBtns(); hideHint(); needs=true; click(); };
+document.getElementById('reset').onclick=()=>{ unlock(); reset(); click(); };
+
+window.addEventListener('resize',resize);
+resize(); reset(); requestAnimationFrame(frame);
+
+// ---- manual hooks (headless verification; harmless in production) ----
+window.__tick=(n)=>{ for(let i=0;i<(n||1);i++){ needs=false; render(); } return true; };
+window.__px=(x,y)=>{ const d=ctx.getImageData(Math.round(x*dpr),Math.round(y*dpr),1,1).data; return [d[0],d[1],d[2]]; };
+window.__state=()=>({W,H,samples,lights:lights.map(l=>({n:l.name,x:l.x,y:l.y})),
+  objs:objs.map(o=>({k:o.kind,x:o.x,y:o.y,z:o.z,r:visR(o),m:mag(o)}))});
+window.__setSamples=(n)=>{samples=n;needs=true;};
+window.__setBlur=(v)=>{BLUR=v;needs=true;};
+})();
+</script>
+</body>
+</html>
