@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>后院 · Max 的玩具站</title>
+<meta name="description" content="Max 做的那些没进作品集的东西：三件玩得比较大的，和四十六个小玩具。全部点开即玩。">
+<style>
+*{box-sizing:border-box}
+:root{
+  --bg:#0e0d13; --card:#17161f; --line:rgba(255,255,255,.08);
+  --ink:#f2f0f8; --mut:#9a97ad; --dim:#6a6779;
+  --a:#ffd76a; --b:#ff6ad0; --c:#7a6cff; --d:#4ad9ff;
+}
+html,body{margin:0}
+body{
+  background:
+    radial-gradient(1200px 620px at 50% -12%,rgba(122,108,255,.17),transparent 62%),
+    radial-gradient(900px 520px at 92% 112%,rgba(255,106,208,.10),transparent 62%),
+    var(--bg);
+  color:var(--ink);min-height:100vh;
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,"Microsoft Yahei",sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1180px;margin:0 auto;padding:58px 22px 90px}
+
+/* 头 */
+header{text-align:center;margin-bottom:46px}
+.eyebrow{font-size:11.5px;letter-spacing:.34em;text-transform:uppercase;color:var(--mut);font-weight:800}
+h1{font-size:clamp(40px,8.5vw,78px);margin:.12em 0 .16em;font-weight:900;letter-spacing:.02em;
+   background:linear-gradient(92deg,var(--a),var(--b) 42%,var(--c) 78%,var(--d));
+   -webkit-background-clip:text;background-clip:text;color:transparent;text-wrap:balance}
+.sub{color:var(--mut);font-size:15.5px;line-height:1.8;max-width:32em;margin:0 auto;font-weight:500}
+.sub b{color:var(--ink);font-weight:600}
+.toportfolio{display:inline-flex;align-items:center;gap:7px;margin-top:22px;font-size:13px;
+  color:var(--mut);border:1px solid var(--line);padding:8px 15px;border-radius:99px;
+  background:rgba(255,255,255,.03);transition:.18s}
+.toportfolio:hover{color:var(--ink);border-color:rgba(255,255,255,.2);background:rgba(255,255,255,.06)}
+
+/* 区块标题 */
+.secthead{display:flex;align-items:baseline;gap:12px;margin:56px 0 20px;flex-wrap:wrap}
+.secthead h2{font-size:21px;margin:0;font-weight:800;letter-spacing:.02em}
+.secthead .note{color:var(--dim);font-size:13px;font-weight:500}
+
+/* 大作品 */
+.bigs{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.big{position:relative;background:var(--card);border:1px solid var(--line);border-radius:18px;
+  padding:26px 24px 22px;overflow:hidden;transition:.2s;display:flex;flex-direction:column;min-height:210px}
+.big:before{content:"";position:absolute;inset:0;opacity:.16;transition:.2s;
+  background:radial-gradient(420px 200px at 15% 0%,var(--glow),transparent 70%)}
+.big:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.19)}
+.big:hover:before{opacity:.3}
+.big .em{font-size:32px;position:relative}
+.big h3{margin:12px 0 3px;font-size:19px;font-weight:800;position:relative}
+.big .en{color:var(--dim);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;
+  font-weight:700;position:relative}
+.big p{color:var(--mut);font-size:13.5px;line-height:1.75;margin:12px 0 0;position:relative;flex:1}
+.big .go{margin-top:16px;font-size:13px;font-weight:700;color:var(--ink);position:relative;opacity:.85}
+
+/* 筛选 */
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 22px}
+.f{font-size:13px;font-weight:700;color:var(--mut);background:rgba(255,255,255,.04);
+  border:1px solid var(--line);padding:7px 14px;border-radius:99px;cursor:pointer;transition:.16s}
+.f:hover{color:var(--ink);border-color:rgba(255,255,255,.18)}
+.f.on{background:var(--ink);color:#14131a;border-color:var(--ink)}
+.f .n{opacity:.5;margin-left:5px;font-weight:600}
+
+/* 玩具网格 */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:13px}
+.toy{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:17px 16px 15px;
+  transition:.16s;display:flex;flex-direction:column;position:relative;overflow:hidden}
+.toy:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.2);background:#1c1b26}
+.toy .top{display:flex;align-items:flex-start;justify-content:space-between}
+.toy .em{font-size:27px;line-height:1}
+.toy .idx{font-size:10.5px;color:var(--dim);font-variant-numeric:tabular-nums;font-weight:700;letter-spacing:.06em}
+.toy h4{margin:11px 0 2px;font-size:15px;font-weight:800}
+.toy .en{color:var(--dim);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;font-weight:700}
+.toy p{color:var(--mut);font-size:12.5px;line-height:1.65;margin:9px 0 0;flex:1}
+.toy .tag{margin-top:11px;font-size:10.5px;color:var(--dim);font-weight:700;letter-spacing:.08em}
+.toy.hide{display:none}
+
+footer{margin-top:72px;text-align:center;color:var(--dim);font-size:12.5px;line-height:2}
+footer a{color:var(--mut);border-bottom:1px solid var(--line)}
+footer a:hover{color:var(--ink)}
+
+@media (max-width:640px){
+  .wrap{padding:40px 16px 70px}
+  .grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+  .toy p{display:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Max · Backyard</div>
+  <h1>后院</h1>
+  <p class="sub">
+    这里放的是没进作品集的东西。<b>三件玩得比较大的</b>，和<b>四十六个小玩具</b>。<br>
+    都是单文件、零依赖、点开就能玩，手机也行。
+  </p>
+  <a class="toportfolio" href="https://maxi-max-dev.github.io/">← 去正经的那个作品集</a>
+</header>
+
+<div class="secthead">
+  <h2>玩得比较大的</h2>
+  <span class="note">三件，都能逛挺久</span>
+</div>
+<div class="bigs" id="bigs"></div>
+
+<div class="secthead">
+  <h2>小玩具</h2>
+  <span class="note">四十六个，一晚上做出来的，点开即玩</span>
+</div>
+<div class="filters" id="filters"></div>
+<div class="grid" id="grid"></div>
+
+<footer>
+  全部单文件 HTML，零依赖，离线可跑。<br>
+  <a href="https://maxi-max-dev.github.io/">作品集</a> ·
+  <a href="https://github.com/maxi-max-dev">GitHub</a>
+</footer>
+
+</div>
+
+<script>
+const BIGS=[
+  {em:"🏛",cn:"感觉博物馆",en:"Museum of Feelings",glow:"#7a6cff",
+   url:"https://maxi-max-dev.github.io/museum-of-feelings/",
+   desc:"三十八个展厅，每一间让你亲手玩一遍某个平时只能听人讲的道理：亲手制造一场堵车、亲手织一个信息茧房、为什么你排的队永远最慢。分感官、概率、系统、时间、年代记忆五个展区。"},
+  {em:"🍽",cn:"今夜设宴",en:"Le Festin",glow:"#ff6ad0",
+   url:"https://maxi-max-dev.github.io/hannibal-menu/",
+   desc:"「告诉我你吃什么，我就能说出你是怎样的人。」一盒会翻的菜品卡，翻着点完今晚这一桌，它给你出一份正式菜单。也可以直接让主厨决定。"},
+  {em:"🪞",cn:"另一个你",en:"Other You",glow:"#4ad9ff",
+   url:"https://maxi-max-dev.github.io/other-you/",
+   desc:"当年那个选择要是改一改，现在会在哪。一天一天推演给你看。不卖预测，样本只有一个人，就是你自己。"},
+];
+
+const CATS=["全部","物理","氛围","小游戏","绘画","抽奖","乐器"];
+
+const TOYS=[
+ [1,"jelly","🍮","果冻工厂","Jelly","物理","一堆会抖、有大眼睛、会盯着你手指看的软软果冻。戳一下会扁，拖着甩，砸墙上会摊开。"],
+ [2,"kaleido","🔮","万花镜","Kaleido","绘画","动动手指就画出一朵旋转对称、会自己长大的发光曼陀罗。瓣数可调，能存图。"],
+ [3,"doodle","🖍️","弹珠涂鸦","Doodle","物理","手指画几条坡道，点一下掉颗糖果弹珠，看它顺着你画的线滚、弹、堆起来。"],
+ [4,"bloom","🌷","种一朵","Bloom","氛围","点一下地面，种子抽枝发芽随风摇，开成一朵花。能点满整片花海。"],
+ [5,"fluid","🌫️","墨","Fluid","物理","手指划过水面，发光的彩色烟墨翻卷缠绕散开。底下是真的流体方程。"],
+ [6,"powder","⏳","落沙","Powder","物理","选沙、水、石、苗、火往屏幕上画：沙堆成坡、水会流会溢、火烧植物会蔓延。"],
+ [7,"harp","🎵","光弦","Harp","乐器","横划一排彩色琴弦，弦颤动发光还叮咚响。用的五声音阶，怎么划都好听。"],
+ [8,"whack","🔨","打地鼠","Whack","小游戏","小家伙从洞里冒头，点它就啵一下缩回去。连击有倍数，带刺的别打。三十秒。"],
+ [9,"fireworks","🎆","烟花","Fireworks","氛围","点一下夜空，火箭升空炸开一朵。球形、环形、柳形三种花，有声音。"],
+ [10,"pop","🫧","戳泡泡","Pop","小游戏","一整张彩虹泡泡纸，戳一下啵地瘪下去，按住划过连爆一串。戳满了撒彩纸。"],
+ [11,"constellation","✨","星座","Constellation","绘画","满天星，从一颗拖到另一颗连成你自己的星座。每连一颗响一个音，越连越高。"],
+ [12,"slice","🍉","切切乐","Slice","小游戏","水果嗖嗖抛上来，手指划过咔嚓切两半，果汁四溅。躲开炸弹。"],
+ [13,"ripple","💧","涟漪","Ripple","氛围","点一下水面，一圈圈荡开、互相干涉、碰边反弹，月光倒影被水波揉碎。"],
+ [14,"magnet","🧲","磁力铁屑","Magnet","物理","白纸上撒两千八百根铁屑，拖动磁铁，铁屑瞬间排成中学课本里那个花纹。"],
+ [15,"chaos","🌀","混沌摆","Chaos","物理","七个双摆并排放下，起点几乎一样，几秒后各自狂舞彻底散开。蝴蝶效应看得见。"],
+ [16,"gears","⚙️","齿轮","Gears","物理","六个彩色齿轮严丝合缝咬在一起，摇任意一个，整排按齿比联动，大轮慢小轮快。"],
+ [17,"rainwindow","🌧️","雨窗","RainWindow","氛围","下雨夜的起雾玻璃，大水珠顺流而下拉出透亮水痕，手指一抹擦开雾看见外面霓虹。"],
+ [18,"2048","🔢","2048","2048","小游戏","经典。滑动合并数字方块，2+2=4，一路拼到 2048。"],
+ [19,"tiles","🎹","别踩白块","Tiles","小游戏","霓虹方块四道往下落，点最下面那个，点错就结束。每点一下弹个琴音连成旋律。"],
+ [20,"dandelion","🌱","蒲公英","Dandelion","氛围","一朵毛茸茸的蒲公英，手指划过把种子吹脱，带着小降落伞随风飘远打旋消失。"],
+ [21,"laser","🔦","光","Laser","物理","激光射出来，拖和转镜子让它一路反射拐弯，最后照到水晶上把它点亮。"],
+ [22,"dominoes","🁢","多米诺","Dominoes","物理","手指划一道摆出一排骨牌，点第一块，哗啦啦连锁倒下去。"],
+ [23,"particletext","✨","粒子字","ParticleText","绘画","打几个字，两千多颗发光粒子飞过来拼成它。手指划过打散，又自己流回去重拼。"],
+ [24,"hoops","🏀","投篮","Hoops","小游戏","篮球往后拉再松手，弹弓一样投出去。空心入网得分，投多了篮筐会左右移动。"],
+ [25,"fireflies","🪰","萤火虫","Fireflies","氛围","夏夜草丛一群萤火虫飘着闪，会慢慢同步到整片一起亮灭。手指放上去它们会聚过来。"],
+ [26,"memory","🃏","翻翻乐","Memory","小游戏","四乘四盖着的牌，翻两张，一样就留住，不一样自动盖回去。凭记性配齐八对。"],
+ [27,"aurora","🌌","极光","Aurora","氛围","深夜的绿紫极光帘幕波动流光，底下是雪山剪影和星空。手指划过搅动它。"],
+ [28,"wheel","🎡","大转盘","Wheel","抽奖","八格抽奖转盘，拨一下慢慢转停，每格过指针嗒一声。抽到再转一次会自己再转。"],
+ [29,"jellyfish","🪼","水母","Jellyfish","氛围","深海里几只发光水母一收一放往上漂，长触须飘荡。手指是洋流，能把它们引过来。"],
+ [30,"pinball","🕹️","弹珠台","Pinball","小游戏","街机弹珠台。钢珠乱窜撞弹力柱加分，点屏幕左右半边拍挡板把球顶回去。"],
+ [31,"snake","🐍","贪吃蛇","Snake","小游戏","终极经典。吃苹果长一节，撞墙或咬到自己就结束。"],
+ [32,"solar","🪐","太阳系","Solar","物理","八大行星按各自的周期公转，水星最快海王星最慢。土星有环，地球有月亮。"],
+ [33,"minesweeper","💣","扫雷","Minesweeper","小游戏","经典扫雷，数字是周围雷数。第一下保证安全，空白格会自己连开一片。"],
+ [34,"radar","📡","雷达","Radar","氛围","绿磷光雷达屏，扫描线绕圈转带拖尾，扫到目标就亮一下还嘀一声。点屏幕投放目标。"],
+ [35,"paint","🎨","调色盘","Paint","绘画","红黄蓝三坨颜料拖到一起会真的混色：红加黄变橙，黄加蓝变绿。美术课那套。"],
+ [36,"ecg","💚","心电图","ECG","氛围","医院那台心率监护仪，绿色心跳波扫过屏幕，每跳一下嘀一声。心率可以调。"],
+ [37,"hop","🦘","跳一跳","Hop","小游戏","按住蓄力松手，萌方块抛物线跳到下一根柱子。落中心多得分，没落上就摔下去。"],
+ [38,"campfire","🔥","篝火","Campfire","氛围","夜里一堆篝火，火苗窜、火星噼啪上飘。戳一下火窜高，划一下扇风吹歪它。"],
+ [39,"aquarium","🐠","鱼缸","Aquarium","氛围","一群彩色萌鱼摇着尾巴游。点一下撒鱼食，附近的鱼会转头游过来吃。"],
+ [40,"snowglobe","❄️","雪花球","SnowGlobe","氛围","玻璃球里的冬夜：小木屋亮着暖光，雪松、月亮。晃一晃雪花漫天飞再慢慢落回去。"],
+ [41,"slots","🎰","老虎机","Slots","抽奖","经典水果机。按下去三个转轮呼呼转，再一个个咔咔停住。三个一样是大奖。"],
+ [42,"piano","🎹","钢琴","Piano","乐器","两个八度的黑白键，点或者用键盘弹，键会亮起来。有个自动弹会放小星星。"],
+ [43,"goldenegg","🥚","砸金蛋","GoldenEgg","抽奖","年会那套。三个金蛋，点一下锤子挥下去砸开，蹦出红包或者谢谢参与。"],
+ [44,"dice","🎲","骰子","Dice","抽奖","绿绒布台子上掷两颗骰子，翻滚碰壁弹跳，停下来报点数。豹子会红色高亮。"],
+ [45,"balloon","🎈","吹气球","Balloon","小游戏","打气，气球越来越大越来越紧张，超过某个说不准的点就砰。及时系起来放飞才算赢。"],
+ [46,"spirograph","🌀","万花尺","Spirograph","绘画","童年那个画圈玩具。小齿轮带着笔在大圈里转，自己画出一朵对称的霓虹花。"],
+];
+
+const $=s=>document.querySelector(s);
+
+$('#bigs').innerHTML=BIGS.map(b=>`
+  <a class="big" href="${b.url}" style="--glow:${b.glow}">
+    <span class="em">${b.em}</span>
+    <h3>${b.cn}</h3>
+    <div class="en">${b.en}</div>
+    <p>${b.desc}</p>
+    <div class="go">进去看看 ↗</div>
+  </a>`).join('');
+
+const count=c=>c==='全部'?TOYS.length:TOYS.filter(t=>t[5]===c).length;
+$('#filters').innerHTML=CATS.map((c,i)=>
+  `<button class="f${i===0?' on':''}" data-c="${c}">${c}<span class="n">${count(c)}</span></button>`).join('');
+
+$('#grid').innerHTML=TOYS.map(([i,slug,em,cn,en,cat,desc])=>`
+  <a class="toy" data-c="${cat}" href="t/${slug}.html">
+    <div class="top"><span class="em">${em}</span><span class="idx">${String(i).padStart(2,'0')}</span></div>
+    <h4>${cn}</h4>
+    <div class="en">${en}</div>
+    <p>${desc}</p>
+    <div class="tag">${cat}</div>
+  </a>`).join('');
+
+$('#filters').addEventListener('click',e=>{
+  const b=e.target.closest('.f'); if(!b) return;
+  document.querySelectorAll('.f').forEach(x=>x.classList.toggle('on',x===b));
+  const c=b.dataset.c;
+  document.querySelectorAll('.toy').forEach(t=>
+    t.classList.toggle('hide', c!=='全部' && t.dataset.c!==c));
+});
+</script>
+</body>
+</html>
