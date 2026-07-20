@@ -15,7 +15,7 @@
   .bar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
     background:rgba(10,30,18,.5);border:1px solid rgba(77,255,154,.25);padding:8px 12px;border-radius:14px;backdrop-filter:blur(8px)}
   .bar button{font:inherit;font-weight:700;font-size:15px;color:#4dff9a;border:1px solid rgba(77,255,154,.3);background:rgba(255,255,255,.05);padding:8px 18px;border-radius:10px;cursor:pointer}
-  .hint{position:fixed;left:50%;bottom:66px;transform:translateX(-50%);z-index:4;font-size:12px;font-weight:600;opacity:.55;pointer-events:none;transition:opacity .6s;white-space:nowrap;letter-spacing:1px}
+  .hint{position:fixed;left:50%;bottom:88px;transform:translateX(-50%);z-index:4;font-size:12px;font-weight:600;opacity:.55;pointer-events:none;transition:opacity .6s;white-space:nowrap;letter-spacing:1px}
 </style>
 </head>
 <body>
@@ -56,15 +56,15 @@ function step(dt){
   const speed=W/5; // sweep across in 5s
   let px0=Math.floor(cursor); cursor+=speed*dt; if(cursor>=W)cursor-=W; let px1=Math.floor(cursor);
   const cyc=bpm/60;
-  const drawPx=(x)=>{ x=((x%W)+W)%W; const phase=(t + (x-cursor)/speed)*cyc; // approx time at this pixel = now (drawing head)
-    const val=ecg((t*cyc)%1); buf[x]=baseY - val*amp;
+  const drawPx=(x)=>{ const phase=(t + (x-cursor)/speed)*cyc; // exact time at this pixel
+    const xi=((x%W)+W)%W; buf[xi]=baseY - ecg(phase)*amp;
     // erase gap ahead
-    buf[((x+8)%W+W)%W]=NaN;
+    buf[(xi+8)%W]=NaN;
   };
   // detect R for beep: R at phase 0.30
   const prevPhase=((t-dt)*cyc)%1, curPhase=(t*cyc)%1;
   const crossedR = prevPhase<0.30 ? (curPhase>=0.30 || curPhase<prevPhase) : (curPhase>=0.30 && curPhase<prevPhase);
-  if(px1>=px0){ for(let x=px0;x<=px1;x++)drawPx(x); } else { for(let x=px0;x<W;x++)drawPx(x); for(let x=0;x<=px1;x++)drawPx(x); }
+  if(px1>=px0){ for(let x=px0;x<=px1;x++)drawPx(x); } else { for(let x=px0;x<W;x++)drawPx(x-W); for(let x=0;x<=px1;x++)drawPx(x); }
   t+=0; // t advanced below
   if(crossedR){ beep(); flash=1; }
   if(flash>0)flash-=dt*4;
@@ -85,11 +85,12 @@ function draw(){
   // cursor dot
   const cy=buf[Math.floor(cursor)]; if(!isNaN(cy)){ ctx.fillStyle='#dfffe8';ctx.beginPath();ctx.arc(cursor,cy,3.5,0,6.28);ctx.fill(); }
   // BPM
-  ctx.fillStyle=flash>0?'#dfffe8':'#4dff9a';ctx.font='800 '+Math.floor(H*0.11)+'px "SF Mono",monospace';ctx.textAlign='right';ctx.textBaseline='alphabetic';
-  ctx.shadowColor='rgba(77,255,154,'+(0.4+flash*0.5)+')';ctx.shadowBlur=12+flash*20; ctx.fillText(Math.round(bpm), W-24, H*0.2); ctx.shadowBlur=0;
-  ctx.font='700 16px "SF Mono",monospace';ctx.fillText('BPM', W-24, H*0.2+22);
+  const fs=Math.floor(H*0.11), hy=Math.max(H*0.2, 70+fs); // keep clear of the title block on short windows
+  ctx.fillStyle=flash>0?'#dfffe8':'#4dff9a';ctx.font='800 '+fs+'px "SF Mono",monospace';ctx.textAlign='right';ctx.textBaseline='alphabetic';
+  ctx.shadowColor='rgba(77,255,154,'+(0.4+flash*0.5)+')';ctx.shadowBlur=12+flash*20; ctx.fillText(Math.round(bpm), W-24, hy); ctx.shadowBlur=0;
+  ctx.font='700 16px "SF Mono",monospace';ctx.fillText('BPM', W-24, hy+22);
   // heart icon pulse
-  const sc=1+flash*0.4; ctx.font=Math.floor(28*sc)+'px sans-serif';ctx.textAlign='left';ctx.fillText('❤️', 24, H*0.2); ctx.textAlign='left';
+  const sc=1+flash*0.4; ctx.font=Math.floor(28*sc)+'px sans-serif';ctx.textAlign='left';ctx.fillText('❤️', 24, hy); ctx.textAlign='left';
 }
 let last=performance.now();
 function frame(now){ const dt=Math.min((now-last)/1000,0.04); last=now; t+=dt; step(dt); draw(); requestAnimationFrame(frame); }

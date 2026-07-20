@@ -44,12 +44,14 @@ function jackpot(){ if(!actx)return;[0,4,7,12,16].forEach((s,i)=>{const o=actx.c
 const SYM=['🍒','🍋','🍊','🍉','🔔','⭐','7️⃣'];
 const N=SYM.length;
 let reels, credits=100, msg='', msgT=0, confetti=[], t=0;
-function reset(){ reels=[]; for(let i=0;i<3;i++) reels.push({off:Math.random()*N*100,v:0,spinning:false,decel:false,stopT:0}); }
-resize(); reset();
-
 let symH=0, reelW=0, bx=0, by=0, bw=0, bh=0;
-function layout(){ bw=Math.min(W*0.86,460); reelW=bw/3-10; symH=Math.min(reelW*0.9,H*0.16); bh=symH*3+30; bx=(W-bw)/2; by=(H-bh)/2-10; }
-function spin(){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); if(reels.some(r=>r.spinning))return; if(credits<5){credits=100;} credits-=5; msg='';
+function layout(){ const old=symH; bw=Math.min(W*0.86,460); reelW=bw/3-10; symH=Math.min(reelW*0.9,H*0.16); bh=symH*3; bx=(W-bw)/2; by=(H-bh)/2-10;
+  if(reels&&old>0&&symH!==old) reels.forEach(r=>{ if(!r.spinning) r.off=Math.round(r.off/old)*symH; });  // 换尺寸后重新吸附
+}
+// 初始就吸附到中奖线上（off 必须是 symH 的整数倍），所以 layout() 要先跑
+function reset(){ reels=[]; for(let i=0;i<3;i++) reels.push({off:((Math.random()*N)|0)*symH,v:0,spinning:false,decel:false,stopT:0}); }
+resize(); layout(); reset();
+function spin(){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); if(reels.some(r=>r.spinning))return; msg=''; if(credits<5){credits=100;msg='🎁 送你 100 个筹码';msgT=1.8;} credits-=5;
   reels.forEach((r,i)=>{ r.spinning=true; r.decel=false; r.v=1400+Math.random()*300; r.stopT=t+0.7+i*0.45; }); }
 function payline(){ return reels.map(r=>SYM[((Math.round(r.off/symH))%N+N)%N]); }
 function step(dt){

@@ -22,6 +22,8 @@
 (()=>{
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 let W=0,H=0,dpr=1,COLS=17,ROWS=13,cell=0,ox=0,oy=0;
+// 竖屏（手机）用竖的棋盘，别让格子被宽度卡成一小条
+if((window.innerHeight||0)>(window.innerWidth||1)){ COLS=13; ROWS=17; }
 function resize(){
   dpr=Math.min(window.devicePixelRatio||1,2);
   W=window.innerWidth||document.documentElement.clientWidth||800;
@@ -39,7 +41,7 @@ function nom(f){ if(!actx)return;const t=actx.currentTime;const o=actx.createOsc
 function buzz(){ if(!actx)return;const t=actx.currentTime;const o=actx.createOscillator();o.type='sawtooth';o.frequency.setValueAtTime(200,t);o.frequency.exponentialRampToValueAtTime(60,t+0.3);const g=actx.createGain();g.gain.setValueAtTime(0.3,t);g.gain.exponentialRampToValueAtTime(0.0001,t+0.32);o.connect(g);g.connect(master);o.start(t);o.stop(t+0.34);}
 
 let snake, prev, dir, ndir, food, score, best=0, state, moveT, interval, progress, foodPulse=0;
-function reset(){ snake=[{x:5,y:6},{x:4,y:6},{x:3,y:6}]; prev=snake.map(s=>({...s})); dir={x:1,y:0}; ndir={x:1,y:0}; score=0; state='play'; interval=0.16; moveT=0; progress=0; placeFood(); }
+function reset(){ snake=[{x:5,y:6},{x:4,y:6},{x:3,y:6}]; prev=snake.map(s=>({...s})); dir={x:1,y:0}; ndir={x:1,y:0}; score=0; state='ready'; interval=0.16; moveT=0; progress=0; placeFood(); }
 function placeFood(){ let p; do{ p={x:(Math.random()*COLS)|0,y:(Math.random()*ROWS)|0}; }while(snake.some(s=>s.x===p.x&&s.y===p.y)); food=p; }
 reset();
 
@@ -62,8 +64,8 @@ function draw(){
   ctx.fillStyle='#eaf6ea'; ctx.fillRect(0,0,W,H);
   // board
   ctx.fillStyle='#dcefdc'; ctx.fillRect(ox,oy,cell*COLS,cell*ROWS);
-  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){ if((r+c)%2){ ctx.fillStyle='#d3ebd3'; ctx.fillRect(ox+c*cell,oy+r*cell,cell,cell);} }
-  ctx.strokeStyle='rgba(90,140,90,.3)';ctx.lineWidth=3;ctx.strokeRect(ox,oy,cell*COLS,cell*ROWS);
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){ if((r+c)%2){ ctx.fillStyle='#cbe6cb'; ctx.fillRect(ox+c*cell,oy+r*cell,cell,cell);} }
+  ctx.strokeStyle='rgba(90,140,90,.55)';ctx.lineWidth=3;ctx.strokeRect(ox,oy,cell*COLS,cell*ROWS);
   // food
   const fp=1+foodPulse*0.3; ctx.font=Math.floor(cell*0.8*fp)+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
   ctx.fillText('🍎', px(food.x), py(food.y)+1);
@@ -84,13 +86,15 @@ function draw(){
   // HUD
   ctx.fillStyle='#3f5a44';ctx.font='800 24px -apple-system,sans-serif';ctx.textAlign='center';ctx.textBaseline='alphabetic';
   ctx.fillText('长度 '+snake.length+'    最佳 '+(best+3), W/2, oy-16); ctx.textAlign='left';
-  if(state==='over'){ ctx.fillStyle='rgba(234,246,234,0.82)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.fillStyle='#3f5a44';ctx.font='800 40px -apple-system,sans-serif';ctx.fillText('撞到啦！',W/2,H*0.42);
+  if(state==='ready'){ ctx.textAlign='center';ctx.fillStyle='#3f5a44';ctx.font='700 20px -apple-system,sans-serif';
+    ctx.fillText('按方向键 / 划一下开始', W/2, oy+cell*ROWS+36); ctx.textAlign='left'; }
+  if(state==='over'){ ctx.fillStyle='rgba(234,246,234,0.6)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.fillStyle='#3f5a44';ctx.font='800 40px -apple-system,sans-serif';ctx.fillText('撞到啦！',W/2,H*0.42);
     ctx.fillStyle='#4caf50';ctx.font='800 54px -apple-system,sans-serif';ctx.fillText('长到 '+snake.length,W/2,H*0.42+64);ctx.fillStyle='#3f5a44';ctx.font='700 20px -apple-system,sans-serif';ctx.fillText('点屏幕再来一条',W/2,H*0.42+104);ctx.textAlign='left'; }
 }
 let last=performance.now();
 function frame(now){ const dt=Math.min((now-last)/1000,0.05); last=now; step(dt); draw(); requestAnimationFrame(frame); }
 
-function turn(dx,dy){ if(dx===-dir.x&&dy===-dir.y)return; ndir={x:dx,y:dy}; }
+function turn(dx,dy){ if(state==='ready')state='play'; if(dx===-dir.x&&dy===-dir.y)return; ndir={x:dx,y:dy}; }
 addEventListener('keydown',e=>{ const m={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1],a:[-1,0],d:[1,0],w:[0,-1],s:[0,1]}[e.key]; if(m){e.preventDefault();initAudio();if(state==='over'){reset();return;}turn(m[0],m[1]);} });
 let sx=0,sy=0,sd=false;
 cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);initAudio();if(actx&&actx.state==='suspended')actx.resume();if(state==='over'){reset();return;}sd=true;sx=e.clientX;sy=e.clientY;});

@@ -38,11 +38,11 @@ function splat(freq){ if(!actx)return; const t=actx.currentTime; const o=actx.cr
 function boom(){ if(!actx)return; const t=actx.currentTime; const o=actx.createOscillator();o.type='square';o.frequency.setValueAtTime(120,t);o.frequency.exponentialRampToValueAtTime(35,t+0.3);
   const g=actx.createGain();g.gain.setValueAtTime(0.5,t);g.gain.exponentialRampToValueAtTime(0.0001,t+0.4);o.connect(g);g.connect(master);o.start(t);o.stop(t+0.42);}
 
-const FRUIT=[{c:'#ff5a5a',j:'#ffcaca'},{c:'#ff9f43',j:'#ffe0bf'},{c:'#ffd23d',j:'#fff2b0'},{c:'#4fd18b',j:'#c6f5da'},{c:'#5aa0ff',j:'#cfe2ff'},{c:'#ff6bd0',j:'#ffcdee'}];
+const FRUIT=[{e:'🍉',c:'#ff5a5a',j:'#ffcaca'},{e:'🍊',c:'#ff9f43',j:'#ffe0bf'},{e:'🍋',c:'#ffd23d',j:'#fff2b0'},{e:'🍏',c:'#4fd18b',j:'#c6f5da'},{e:'🍇',c:'#a06bff',j:'#e0cdff'},{e:'🍑',c:'#ff8fa0',j:'#ffd6dc'}];
 let fruits=[], halves=[], juice=[], blade=[];
-let state='ready', score=0, best=0, lives=3, t=0, spawnNext=0, comboN=0, comboMsg=null;
+let state='ready', score=0, best=0, lives=3, t=0, spawnNext=0, comboN=0, lastSlice=-9, comboMsg=null;
 
-function reset(){ fruits=[];halves=[];juice=[];blade=[];score=0;lives=3;t=0;spawnNext=0;comboN=0;comboMsg=null;state='play'; }
+function reset(){ fruits=[];halves=[];juice=[];blade=[];score=0;lives=3;t=0;spawnNext=0;comboN=0;lastSlice=-9;comboMsg=null;state='play'; }
 function spawn(){
   const n=1+((Math.random()*2.4)|0);
   for(let i=0;i<n;i++){
@@ -53,10 +53,14 @@ function spawn(){
       ang:Math.random()*6.28,va:(Math.random()-.5)*6, f:bomb?null:FRUIT[(Math.random()*FRUIT.length)|0], bomb});
   }
 }
+function awardCombo(){ if(comboN>=3){ score+=comboN; comboMsg={txt:comboN+' 连切！+'+comboN,t}; } comboN=0; }
+function gameOver(){ awardCombo(); state='over'; best=Math.max(best,score); }
 function sliceFruit(fr){
-  if(fr.bomb){ boom(); state='over'; best=Math.max(best,score); return; }
+  if(fr.bomb){ boom(); gameOver(); return; }
   fr.sliced=true;
-  score++; comboN++;
+  score++;
+  if(t-lastSlice>0.4) comboN=0;   // 连击按「一次划动」算，停手 0.4 秒就断
+  comboN++; lastSlice=t;
   splat(260+Math.random()*120);
   // two halves
   for(const s of [-1,1]){ halves.push({x:fr.x,y:fr.y,vx:fr.vx+s*120,vy:fr.vy*0.4-40,ang:fr.ang,va:s*4,r:fr.r,c:fr.f.c,j:fr.f.j,side:s}); }
@@ -71,14 +75,14 @@ function segHit(fr,x0,y0,x1,y1){
 let down=false, lastX=0,lastY=0;
 function onDown(x,y){ initAudio(); if(actx&&actx.state==='suspended')actx.resume();
   if(state==='ready'||state==='over'){ reset(); return; }
-  down=true; lastX=x;lastY=y; comboN=0; blade.push({x,y,t}); }
-function onMove(x,y){ blade.push({x,y,t}); if(!down)return;
+  down=true; lastX=x;lastY=y; blade.push({x,y,t}); }
+function onMove(x,y){ if(!down)return; blade.push({x,y,t});
   let hitAny=false;
   for(const fr of fruits){ if(fr.sliced)continue; if(segHit(fr,lastX,lastY,x,y)){ sliceFruit(fr); hitAny=true; } }
   if(hitAny) slash();
   lastX=x;lastY=y;
 }
-function onUp(){ if(down && comboN>=3){ score+=comboN; comboMsg={txt:comboN+' 连切！+'+comboN,t}; } down=false; }
+function onUp(){ if(down && state==='play') awardCombo(); down=false; }
 cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);onDown(e.clientX,e.clientY);});
 cv.addEventListener('pointermove',e=>onMove(e.clientX,e.clientY));
 cv.addEventListener('pointerup',onUp);
@@ -88,10 +92,12 @@ cv.addEventListener('pointercancel',onUp);
 function update(dt){
   if(state==='play'){
     if(t>spawnNext){ spawnNext=t+0.9+Math.random()*0.8; spawn(); }
-    for(let i=fruits.length-1;i>=0;i--){ const fr=fruits[i]; fr.vy+=760*dt; fr.x+=fr.vx*dt; fr.y+=fr.vy*dt; fr.ang+=fr.va*dt;
-      if(fr.sliced){ fruits.splice(i,1); continue; }
-      if(fr.y>H+80 && fr.vy>0){ fruits.splice(i,1); if(!fr.bomb){ lives--; if(lives<=0){state='over';best=Math.max(best,score);} } } }
+    if(comboN>0 && t-lastSlice>0.4) awardCombo();
   }
+  // 水果物理一直跑，结束后让它们自己掉出屏幕，别压在结算画面上
+  for(let i=fruits.length-1;i>=0;i--){ const fr=fruits[i]; fr.vy+=760*dt; fr.x+=fr.vx*dt; fr.y+=fr.vy*dt; fr.ang+=fr.va*dt;
+    if(fr.sliced){ fruits.splice(i,1); continue; }
+    if(fr.y>H+80 && fr.vy>0){ fruits.splice(i,1); if(state==='play' && !fr.bomb){ lives--; if(lives<=0) gameOver(); } } }
   for(let i=halves.length-1;i>=0;i--){const h=halves[i];h.vy+=760*dt;h.x+=h.vx*dt;h.y+=h.vy*dt;h.ang+=h.va*dt;if(h.y>H+80)halves.splice(i,1);}
   for(let i=juice.length-1;i>=0;i--){const p=juice[i];p.life-=dt;p.vy+=500*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;if(p.life<=0)juice.splice(i,1);}
   for(let i=blade.length-1;i>=0;i--){ if(t-blade[i].t>0.18) blade.splice(i,1); }
@@ -104,9 +110,8 @@ function drawFruit(fr){
     for(let i=0;i<10;i++){const a=i/10*6.28;ctx.beginPath();ctx.moveTo(Math.cos(a)*fr.r,Math.sin(a)*fr.r);ctx.lineTo(Math.cos(a+0.1)*fr.r*1.35,Math.sin(a+0.1)*fr.r*1.35);ctx.lineTo(Math.cos(a+0.2)*fr.r,Math.sin(a+0.2)*fr.r);ctx.fill();}
     ctx.fillStyle='#ff5a3c';ctx.font='bold '+(fr.r)+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('💣',0,2);
   } else {
-    const g=ctx.createRadialGradient(-fr.r*0.3,-fr.r*0.3,fr.r*0.2,0,0,fr.r);g.addColorStop(0,'#fff');g.addColorStop(0.25,fr.f.c);g.addColorStop(1,shade(fr.f.c,-30));
-    ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,fr.r,0,6.28);ctx.fill();
-    ctx.fillStyle='rgba(255,255,255,.7)';ctx.beginPath();ctx.ellipse(-fr.r*0.32,-fr.r*0.34,fr.r*0.2,fr.r*0.12,-0.5,0,6.28);ctx.fill();
+    ctx.font=Math.floor(fr.r*2)+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(fr.f.e,0,0);
   }
   ctx.restore();
 }

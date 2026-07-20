@@ -46,14 +46,14 @@ function curtain(L){
   for(let x=0;x<W;x+=S){
     const top=baseY + L.a1*Math.sin(x*L.w1+t*0.6+L.ph) + L.a2*Math.sin(x*L.w2 - t*0.9) + L.a3*Math.sin(x*L.w3 + t*1.4);
     let sh=0.30+0.55*(0.5+0.5*Math.sin(x*0.05+t*L.shs))+0.25*(0.5+0.5*Math.sin(x*0.11-t*1.7));
-    for(const p of pulses){ const dx=x-p.x; sh+=Math.exp(-dx*dx/7200)*p.life*1.4; }
+    for(const p of pulses){ const dx=x-p.x; sh+=Math.exp(-dx*dx/7200)*p.life*0.7; }
     if(sh>1.4)sh=1.4;
     const g=ctx.createLinearGradient(0,top-24,0,top+glow);
     g.addColorStop(0,'rgba('+L.tip+',0)');
     g.addColorStop(0.05,'rgba('+L.tip+','+(0.45*sh)+')');
     g.addColorStop(0.16,'rgba('+L.col+','+(0.7*sh)+')');
     g.addColorStop(1,'rgba('+L.col+',0)');
-    ctx.fillStyle=g; ctx.fillRect(x,top-24,S+1,glow+24);
+    ctx.fillStyle=g; ctx.fillRect(x,top-24,S,glow+24);
   }
 }
 function draw(){

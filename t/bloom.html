@@ -13,7 +13,9 @@
   .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
   .title b{font-size:19px;font-weight:800;letter-spacing:1px;text-shadow:0 1px 0 rgba(255,255,255,.6)}
   .title span{display:block;font-size:12px;opacity:.62;margin-top:2px;font-weight:600}
-  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;
+  .dock{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;pointer-events:none;
+    display:flex;flex-direction:column;align-items:center;gap:7px;max-width:96vw}
+  .bar{pointer-events:auto;
     display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:96vw;
     background:rgba(255,255,255,.72);border:1px solid rgba(150,110,90,.2);
     padding:8px;border-radius:16px;backdrop-filter:blur(10px);box-shadow:0 8px 28px rgba(150,90,70,.2)}
@@ -21,7 +23,7 @@
     padding:9px 13px;border-radius:11px;cursor:pointer;box-shadow:0 2px 0 rgba(150,90,70,.16);transition:transform .08s}
   .bar button:active{transform:translateY(1px);box-shadow:0 1px 0 rgba(150,90,70,.16)}
   .count{position:fixed;top:18px;right:20px;z-index:5;font-weight:800;font-size:14px;opacity:.5;pointer-events:none}
-  .hint{position:fixed;left:50%;bottom:66px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
+  .hint{font-size:13px;font-weight:600;
     opacity:.55;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
 </style>
 </head>
@@ -29,11 +31,13 @@
 <canvas id="cv"></canvas>
 <div class="title"><b>种一朵</b><span>点一下地面，看它长成一朵花</span></div>
 <div class="count" id="count"></div>
-<div class="hint" id="hint">🌱 点点下面的土地 🌱</div>
-<div class="bar">
-  <button id="field">🌸 一片花海</button>
-  <button id="again">🌼 重开一茬</button>
-  <button id="clear">🍂 清空</button>
+<div class="dock">
+  <div class="hint" id="hint">🌱 点点下面的土地 🌱</div>
+  <div class="bar">
+    <button id="field">🌸 一片花海</button>
+    <button id="again">🌼 重开一茬</button>
+    <button id="clear">🍂 清空</button>
+  </div>
 </div>
 <script>
 (()=>{
@@ -45,7 +49,8 @@ function resize(){
   H=window.innerHeight||document.documentElement.clientHeight||600;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  groundY=H*0.9;
+  const dock=document.querySelector('.dock');
+  groundY=Math.min(H*0.9, H-(dock?dock.offsetHeight:60)-46);
 }
 window.addEventListener('resize',resize); resize();
 

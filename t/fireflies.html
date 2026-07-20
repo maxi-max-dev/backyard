@@ -17,7 +17,7 @@
     background:rgba(14,28,22,.5);border:1px solid rgba(150,220,160,.2);padding:8px 12px;border-radius:15px;backdrop-filter:blur(10px)}
   .bar button{font:inherit;font-weight:700;font-size:13px;color:#cfe6d6;border:1px solid rgba(160,225,170,.25);background:rgba(255,255,255,.05);padding:8px 13px;border-radius:11px;cursor:pointer}
   .bar button.on{background:linear-gradient(90deg,#a8e85a,#5ad0a0);border-color:transparent;color:#0a2018}
-  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
+  .hint{position:fixed;left:50%;bottom:88px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -48,13 +48,13 @@ let SYNC=true, t=0, pointer={x:-999,y:-999,on:false};
 function step(dt){
   // Kuramoto mean field (global coupling) for blink synchronization
   let mx=0,my=0; for(const f of flies){ mx+=Math.cos(f.ph); my+=Math.sin(f.ph); } mx/=flies.length; my/=flies.length;
-  const K=SYNC?3.2:0;
+  const K=SYNC?3.2:0, damp=Math.pow(0.94,dt*60); // frame-rate independent (matches old feel at 60fps)
   for(const f of flies){
     f.ph += f.fr*dt + K*(my*Math.cos(f.ph)-mx*Math.sin(f.ph))*dt;
     // wander
     f.wph+=dt*0.7; let ax=Math.cos(f.wph*1.3)*10+Math.sin(f.wph)*8, ay=Math.sin(f.wph*1.1)*10+Math.cos(f.wph*0.7)*8;
     if(pointer.on){ const dx=pointer.x-f.x,dy=pointer.y-f.y,d=Math.hypot(dx,dy)+1; ax+=dx/d*90; ay+=dy/d*90; if(d<70){ax-=dx/d*130;ay-=dy/d*130;} }
-    f.vx+=ax*dt; f.vy+=ay*dt; f.vx*=0.94; f.vy*=0.94;
+    f.vx+=ax*dt; f.vy+=ay*dt; f.vx*=damp; f.vy*=damp;
     f.x+=f.vx*dt; f.y+=f.vy*dt;
     if(f.x<10){f.x=10;f.vx=Math.abs(f.vx);} if(f.x>W-10){f.x=W-10;f.vx=-Math.abs(f.vx);}
     if(f.y<10){f.y=10;f.vy=Math.abs(f.vy);} if(f.y>H-20){f.y=H-20;f.vy=-Math.abs(f.vy);}

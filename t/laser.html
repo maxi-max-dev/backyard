@@ -16,7 +16,7 @@
   .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
     background:rgba(16,20,34,.5);border:1px solid rgba(120,170,255,.2);padding:8px 12px;border-radius:15px;backdrop-filter:blur(10px)}
   .bar button{font:inherit;font-weight:700;font-size:13px;color:#d6e2ff;border:1px solid rgba(140,180,255,.25);background:rgba(255,255,255,.05);padding:8px 13px;border-radius:11px;cursor:pointer}
-  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
+  .hint{position:fixed;left:50%;bottom:78px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -30,12 +30,19 @@ const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 let W=0,H=0,dpr=1;
 function resize(){
   dpr=Math.min(window.devicePixelRatio||1,2);
+  const oW=W,oH=H;
   W=window.innerWidth||document.documentElement.clientWidth||800;
   H=window.innerHeight||document.documentElement.clientHeight||600;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
+  // keep the hint clear of the control bar whatever height it wraps to
+  document.getElementById('hint').style.bottom=(document.querySelector('.bar').offsetHeight+26)+'px';
+  // keep the scene on screen: rescale everything by the size ratio
+  if(oW>0&&oH>0&&mirrors){ const sx=W/oW, sy=H/oH;
+    src.x*=sx; src.y*=sy; target.x*=sx; target.y*=sy;
+    for(const m of mirrors){ m.ax*=sx; m.ay*=sy; m.bx*=sx; m.by*=sy; } }
 }
-window.addEventListener('resize',resize); resize();
+window.addEventListener('resize',resize);
 
 let src, mirrors, target;
 function reset(){
@@ -46,7 +53,9 @@ function reset(){
     {ax:W*0.62,ay:H*0.22,bx:W*0.8,by:H*0.32},
   ];
   target={x:W*0.86,y:H*0.68,r:20,hit:0};
+  flash=0;
 }
+let flash=0, wasHit=0;
 resize(); reset();
 
 function cross(ax,ay,bx,by){return ax*by-ay*bx;}
@@ -65,9 +74,11 @@ function trace(){
     for(const m of mirrors){ const h=raySeg(ox,oy,dx,dy,m.ax,m.ay,m.bx,m.by); if(h&&h.t<bt){bt=h.t;best=h;isMirror=true;} }
     for(const e of edges){ const h=raySeg(ox,oy,dx,dy,e[0],e[1],e[2],e[3]); if(h&&h.t<bt){bt=h.t;best=h;isMirror=false;} }
     if(!best){ pts.push([ox+dx*3000,oy+dy*3000]); break; }
-    // target check along this segment
-    const tx=target.x-ox,ty=target.y-oy; const proj=Math.max(0,Math.min(bt,tx*dx+ty*dy)); const cxp=ox+dx*proj,cyp=oy+dy*proj;
-    if((cxp-target.x)**2+(cyp-target.y)**2 < target.r*target.r) target.hit=1;
+    // crystal check: proper ray-circle hit, beam stops inside the crystal
+    const tx=ox-target.x, ty=oy-target.y;
+    const bq=tx*dx+ty*dy, cq=tx*tx+ty*ty-target.r*target.r, disc=bq*bq-cq;
+    if(disc>0){ const th=-bq-Math.sqrt(disc);
+      if(th>1e-4&&th<bt){ target.hit=1; pts.push([ox+dx*th,oy+dy*th]); break; } }
     pts.push([best.x,best.y]);
     if(!isMirror) break;
     const dot=dx*best.nx+dy*best.ny; dx=dx-2*dot*best.nx; dy=dy-2*dot*best.ny;
@@ -95,11 +106,25 @@ function draw(){
     for(const p of [[m.ax,m.ay],[m.bx,m.by]]){ ctx.fillStyle='#9fd0ff'; ctx.beginPath();ctx.arc(p[0],p[1],6,0,6.28);ctx.fill(); ctx.fillStyle='#0a1020';ctx.beginPath();ctx.arc(p[0],p[1],2.5,0,6.28);ctx.fill(); }
   }
   // target crystal
+  if(target.hit&&!wasHit) flash=1; wasHit=target.hit;
   ctx.save(); ctx.translate(target.x,target.y); ctx.rotate(0.4);
-  const glow=target.hit? 1:0.25;
-  ctx.shadowColor='rgba(120,255,200,'+glow+')'; ctx.shadowBlur=target.hit?28:8;
-  ctx.fillStyle=target.hit?'#6affc0':'#2a5a4a'; ctx.beginPath();
-  for(let i=0;i<6;i++){ const a=i/6*6.28; const r=target.r*(i%2?0.6:1); ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r);} ctx.closePath(); ctx.fill();
+  if(flash>0){ // celebration burst on the moment of the hit
+    ctx.globalCompositeOperation='lighter';
+    ctx.strokeStyle='rgba(140,255,210,'+flash*0.9+')'; ctx.lineWidth=3;
+    ctx.beginPath();ctx.arc(0,0,target.r+(1-flash)*46,0,6.28);ctx.stroke();
+    for(let i=0;i<8;i++){ const a=i/8*6.28, r0=target.r+(1-flash)*22;
+      ctx.beginPath();ctx.moveTo(Math.cos(a)*r0,Math.sin(a)*r0);
+      ctx.lineTo(Math.cos(a)*(r0+12*flash),Math.sin(a)*(r0+12*flash));ctx.stroke(); }
+    ctx.globalCompositeOperation='source-over'; flash=Math.max(0,flash-0.045);
+  }
+  ctx.shadowColor='rgba(120,255,200,'+(target.hit?1:0.35)+')'; ctx.shadowBlur=target.hit?30:12;
+  // 12-vertex six-point star so it reads as a gem, not a triangle
+  ctx.fillStyle=target.hit?'#6affc0':'#2f7a63'; ctx.beginPath();
+  for(let i=0;i<12;i++){ const a=i/12*6.283185; const r=target.r*(i%2?0.55:1);
+    const x=Math.cos(a)*r,y=Math.sin(a)*r; i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+  ctx.closePath(); ctx.fill();
+  ctx.shadowBlur=0; ctx.strokeStyle=target.hit?'rgba(210,255,235,.95)':'rgba(130,220,190,.6)';
+  ctx.lineWidth=1.5; ctx.stroke();
   ctx.restore();
   // source
   ctx.fillStyle='#ff5a6a'; ctx.save();ctx.translate(src.x,src.y);ctx.rotate(src.ang);
@@ -137,8 +162,12 @@ cv.addEventListener('pointermove',e=>{ if(!grab)return; const x=e.clientX,y=e.cl
 cv.addEventListener('pointerup',()=>grab=null);
 cv.addEventListener('pointercancel',()=>grab=null);
 let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
-document.getElementById('add').onclick=()=>{ mirrors.push({ax:W*0.45,ay:H*0.4,bx:W*0.55,by:H*0.45}); };
-document.getElementById('reset').onclick=()=>reset();
+const addBtn=document.getElementById('add');
+function syncAdd(){ const full=mirrors.length>=10; addBtn.disabled=full; addBtn.style.opacity=full?0.4:1; }
+addBtn.onclick=()=>{ if(mirrors.length>=10)return;
+  const k=mirrors.length, a=k*1.1, ux=W*0.42+Math.cos(a)*W*0.1, uy=H*0.38+Math.sin(a)*H*0.16;
+  mirrors.push({ax:ux,ay:uy,bx:ux+Math.cos(a+1.6)*W*0.08,by:uy+Math.sin(a+1.6)*W*0.08}); syncAdd(); };
+document.getElementById('reset').onclick=()=>{ reset(); syncAdd(); };
 requestAnimationFrame(frame);
 })();
 </script>

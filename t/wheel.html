@@ -19,7 +19,7 @@
 <body>
 <canvas id="cv"></canvas>
 <div class="title"><b>大转盘</b><span>拨一下，看停在哪</span></div>
-<div class="hint" id="hint">👆 点一下转盘，让它转起来</div>
+<div class="hint" id="hint">👆 点一下，或者拨一把转得更久</div>
 <script>
 (()=>{
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
@@ -30,7 +30,7 @@ function resize(){
   H=window.innerHeight||document.documentElement.clientHeight||600;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  cx=W/2; cy=H*0.5+10; R=Math.min(W,H)*0.36;
+  cx=W/2; cy=H*0.5+10; R=Math.min(W*0.44,H*0.36);
 }
 window.addEventListener('resize',resize); resize();
 
@@ -41,15 +41,16 @@ function fanfare(){ if(!actx)return;const t=actx.currentTime;[0,4,7,12].forEach(
 
 const SLICES=[['请客','#ff6b8a'],['免单','#ffb04d'],['加鸡腿','#ffd23d'],['再转一次','#6fd18b'],['谢谢参与','#4dc4ff'],['干杯','#9a86ff'],['抱抱','#ff8fd0'],['大奖🎉','#ff5a5a']];
 const N=SLICES.length, SA=Math.PI*2/N;
-let angle=0, av=0, spinning=false, result=-1, confetti=[], t=0, lastSliceAt=-1;
+let angle=0, av=0, spinning=false, pendingRespin=false, result=-1, confetti=[], t=0, lastSliceAt=-1;
 const PTR=-Math.PI/2; // pointer at top
 
 function winnerIndex(){ let a=(PTR-angle)%(Math.PI*2); if(a<0)a+=Math.PI*2; return Math.floor(a/SA)%N; }
-function spin(power){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); av=Math.max(av, 14+Math.random()*10+ (power||0)); spinning=true; result=-1; }
+function spin(power,dir){ initAudio(); if(actx&&actx.state==='suspended')actx.resume();
+  av=Math.max(Math.abs(av), 14+Math.random()*10+Math.min(18,power||0))*(dir||1); spinning=true; result=-1; }
 
 function update(dt){
-  if(spinning){ angle+=av*dt; av*=Math.pow(0.35,dt); if(av<0.15){ av=0; spinning=false; result=winnerIndex();
-      if(SLICES[result][0]==='再转一次'){ setTimeout(()=>spin(6),500); } else { fanfare(); burst(); } }
+  if(spinning){ angle+=av*dt; av*=Math.pow(0.35,dt); if(Math.abs(av)<0.15){ av=0; spinning=false; result=winnerIndex();
+      if(SLICES[result][0]==='再转一次'){ pendingRespin=true; setTimeout(()=>{pendingRespin=false;spin(6);},500); } else { fanfare(); burst(); } }
     const w=winnerIndex(); if(w!==lastSliceAt){ lastSliceAt=w; tick(); }
   }
   for(let i=confetti.length-1;i>=0;i--){const p=confetti[i];p.life-=dt;p.vy+=520*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.rot+=p.rv*dt;if(p.life<=0)confetti.splice(i,1);}
@@ -94,7 +95,19 @@ function lighten(hex){const n=parseInt(hex.slice(1),16);let r=Math.min(255,(n>>1
 let last=performance.now();
 function frame(now){ const dt=Math.min((now-last)/1000,0.04); last=now; t+=dt; update(dt); draw(); requestAnimationFrame(frame); }
 
-cv.addEventListener('pointerdown',e=>{e.preventDefault(); if(!spinning){ spin(); hideHint(); } });
+let drag=null;
+cv.addEventListener('pointerdown',e=>{e.preventDefault(); if(spinning||pendingRespin)return;
+  drag={a:Math.atan2(e.clientY-cy,e.clientX-cx),t:performance.now(),v:0,moved:0}; hideHint(); });
+cv.addEventListener('pointermove',e=>{ if(!drag)return; e.preventDefault();
+  const a=Math.atan2(e.clientY-cy,e.clientX-cx), now=performance.now();
+  let d=a-drag.a; while(d>Math.PI)d-=Math.PI*2; while(d<-Math.PI)d+=Math.PI*2;
+  angle+=d; drag.moved+=Math.abs(d);
+  drag.v=drag.v*0.5+(d/Math.max(0.008,(now-drag.t)/1000))*0.5;
+  drag.a=a; drag.t=now; });
+function release(){ if(!drag)return; const flick=drag.moved>0.08?drag.v:0; drag=null;
+  spin(Math.abs(flick), flick<-0.5?-1:1); }
+addEventListener('pointerup',release);
+addEventListener('pointercancel',release);
 let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
 requestAnimationFrame(frame);
 })();

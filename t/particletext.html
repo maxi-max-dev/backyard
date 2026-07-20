@@ -19,7 +19,7 @@
     border-radius:9px;padding:8px 12px;width:min(52vw,240px);outline:none}
   .box input::placeholder{color:rgba(200,210,255,.4)}
   .box button{font:inherit;font-weight:700;font-size:13px;color:#0a1030;border:none;background:linear-gradient(90deg,#7aa8ff,#c07bff);padding:9px 12px;border-radius:9px;cursor:pointer}
-  .hint{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.55;pointer-events:none;transition:opacity .6s;white-space:nowrap}
+  .hint{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.55;pointer-events:none;transition:opacity .6s;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -38,7 +38,7 @@ function resize(){
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
   oc=document.createElement('canvas'); oc.width=W; oc.height=H; octx=oc.getContext('2d');
-  if(parts.length) build(document.getElementById('txt').value);
+  if(parts.length) apply();
 }
 window.addEventListener('resize',()=>{resize();});
 
@@ -94,7 +94,10 @@ cv.addEventListener('pointerup',()=>{mouse.down=false;mouse.x=-999;mouse.y=-999;
 cv.addEventListener('pointercancel',()=>{mouse.down=false;});
 let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
 const txt=document.getElementById('txt');
-function apply(){ build(txt.value); }
+// 输入框清空时别把粒子归零（整屏变黑像崩了），让它们散开漂着等下一个字
+function apply(){ const s=txt.value.trim();
+  if(!s && parts.length){ for(const p of parts){ p.hx=W*(0.05+Math.random()*0.9); p.hy=H*(0.12+Math.random()*0.66); } return; }
+  build(s||' '); }
 document.getElementById('go').onclick=apply;
 txt.addEventListener('keydown',e=>{ if(e.key==='Enter'){txt.blur();apply();} });
 txt.addEventListener('input',()=>{ if(txt.value.length<=12) apply(); });

@@ -23,13 +23,16 @@
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 let W=0,H=0,dpr=1,TL,TR,TT,TB,cxm;
 function resize(){
+  const oL=TL,oT=TT,ow=TR-TL,oh=TB-TT; // 旧桌面尺寸，用来把球带到新桌面上（转屏/地址栏收起不该白白丢一条命）
   dpr=Math.min(window.devicePixelRatio||1,2);
   W=window.innerWidth||document.documentElement.clientWidth||800;
   H=window.innerHeight||document.documentElement.clientHeight||600;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  const tw=Math.min(W*0.62,H*0.56,440); TL=(W-tw)/2; TR=TL+tw; TT=H*0.06; TB=H*0.94; cxm=(TL+TR)/2;
+  const tw=Math.min(W*0.78,H*0.52,440); TL=(W-tw)/2; TR=TL+tw;
+  const th=Math.max(120,Math.min(H-84,tw*1.7)); TT=(H-th)/2; TB=TT+th; cxm=(TL+TR)/2; // 上下各留够 HUD 和挡板伸出的余量
   layout();
+  if(ow>0&&ball){ ball.x=TL+(ball.x-oL)/ow*(TR-TL); ball.y=TT+(ball.y-oT)/oh*(TB-TT); ball.r=(TR-TL)*0.028; }
 }
 window.addEventListener('resize',resize);
 
@@ -47,16 +50,16 @@ function layout(){
   walls=[
     [TL,TT+30,TL,TB-w*0.40],[TR,TT+30,TR,TB-w*0.40], // sides
     [TL,TT+30, cxm, TT], [cxm,TT, TR,TT+30], // top vee (open-ish)
-    [TL,TB-w*0.40, cxm-gap-6, TB], [TR,TB-w*0.40, cxm+gap+6, TB], // funnel to flippers
+    [TL,TB-w*0.40, cxm-gap, TB-6], [TR,TB-w*0.40, cxm+gap, TB-6], // funnel ends exactly on the flipper pivot, so there is no notch to wedge into
     [TL+w*0.14,fy, cxm-gap-6, fy+w*0.10],[TR-w*0.14,fy, cxm+gap+6, fy+w*0.10] // slingshots
   ];
-  const fl=w*0.24;
+  const fl=w*0.17;
   flL={px:cxm-gap, py:TB-6, dir:1, len:fl, aRest:0.40, aAct:-0.42, a:0.40, pa:0.40, act:false};
   flR={px:cxm+gap, py:TB-6, dir:-1, len:fl, aRest:0.40, aAct:-0.42, a:0.40, pa:0.40, act:false};
   if(!ball) newGame();
 }
 function newGame(){ score=0; balls=3; state='play'; spawnBall(); }
-function spawnBall(){ const w=TR-TL; ball={x:TR-14,y:TB-w*0.5,r:w*0.028,vx:-30,vy:-360}; }
+function spawnBall(){ const w=TR-TL; ball={x:cxm+(Math.random()*2-1)*w*0.10,y:TT+w*0.20,r:w*0.028,vx:(Math.random()*2-1)*90,vy:120}; }
 resize();
 
 function flipTip(f){ return [f.px+f.dir*Math.cos(f.a)*f.len, f.py+Math.sin(f.a)*f.len]; }
@@ -71,7 +74,9 @@ function step(dt){
     ball.vy+=1400*h; ball.x+=ball.vx*h; ball.y+=ball.vy*h;
     const sp=Math.hypot(ball.vx,ball.vy); if(sp>1400){ball.vx*=1400/sp;ball.vy*=1400/sp;}
     // walls
-    for(const w of walls){ const hit=segHit(ball.x,ball.y,ball.r,w[0],w[1],w[2],w[3]); if(hit){ ball.x=hit.cx+hit.nx*ball.r;ball.y=hit.cy+hit.ny*ball.r; const vn=ball.vx*hit.nx+ball.vy*hit.ny; if(vn<0){ball.vx-=1.7*vn*hit.nx;ball.vy-=1.7*vn*hit.ny;ball.vx*=0.86;ball.vy*=0.86;} } }
+    for(const w of walls){ const hit=segHit(ball.x,ball.y,ball.r,w[0],w[1],w[2],w[3]); if(hit){ ball.x=hit.cx+hit.nx*ball.r;ball.y=hit.cy+hit.ny*ball.r; const vn=ball.vx*hit.nx+ball.vy*hit.ny;
+      // bounce the normal part only; tangential slides on with almost no friction (else the ball welds itself into corners)
+      if(vn<0){ const tx=ball.vx-vn*hit.nx, ty=ball.vy-vn*hit.ny; ball.vx=tx*0.99-vn*0.7*hit.nx; ball.vy=ty*0.99-vn*0.7*hit.ny; } } }
     // bumpers
     for(const b of bumpers){ const dx=ball.x-b.x,dy=ball.y-b.y,d=Math.hypot(dx,dy); if(d<b.r+ball.r){ const nx=dx/(d||1),ny=dy/(d||1); ball.x=b.x+nx*(b.r+ball.r);ball.y=b.y+ny*(b.r+ball.r); const vn=ball.vx*nx+ball.vy*ny; if(vn<0){ball.vx-=2*vn*nx;ball.vy-=2*vn*ny;} ball.vx+=nx*120;ball.vy+=ny*120; score+=100; b.flash=1; flashes.push({x:b.x,y:b.y,r:b.r,life:1}); ding(700); } }
     // flippers

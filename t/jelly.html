@@ -34,6 +34,12 @@
     text-align:center;text-shadow:0 1px 0 rgba(255,255,255,.6);white-space:nowrap}
   .count{position:fixed;top:18px;right:20px;z-index:5;font-weight:800;font-size:15px;
     opacity:.55;user-select:none;pointer-events:none}
+  /* phones: keep the four buttons on ONE row instead of wrapping over the play area */
+  @media (max-width:520px){
+    .bar{gap:5px;padding:6px;flex-wrap:nowrap}
+    .bar button{font-size:12px;padding:8px 9px;white-space:nowrap}
+    .hint{bottom:62px}
+  }
 </style>
 </head>
 <body>
@@ -50,7 +56,7 @@
 <script>
 (()=>{
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
-let W=0,H=0,dpr=1;
+let W=0,H=0,dpr=1,FLOOR=0;
 function resize(){
   dpr=Math.min(window.devicePixelRatio||1,2);
   W=window.innerWidth||document.documentElement.clientWidth||800;
@@ -58,6 +64,8 @@ function resize(){
   cv.width=W*dpr; cv.height=H*dpr;
   cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
+  // on phones the button bar sits over the bottom — put the floor above it so the jellies stay visible
+  FLOOR = H - (W<520 ? 62 : 0);
 }
 window.addEventListener('resize',resize); resize();
 
@@ -88,6 +96,9 @@ function makeBlob(cx,cy,r,col){
     r0:r, surprise:0, blink:2+Math.random()*4};
   const L0=2*r*Math.sin(Math.PI/n);
   b.L0=L0;
+  // target area: a bit puffier than the polygon so it reads as plump, but FIXED —
+  // pressure pulls back to it, so a crowd of jellies can't inflate each other any more
+  b.A0=1.35*0.5*n*r*r*Math.sin(2*Math.PI/n);
   for(let i=0;i<n;i++){
     const th=i/n*Math.PI*2;
     b.px[i]=cx+Math.cos(th)*r;
@@ -102,6 +113,14 @@ function centroid(b){
 function area(b){
   let A=0; for(let i=0;i<b.n;i++){const j=(i+1)%b.n; A+=b.px[i]*b.py[j]-b.px[j]*b.py[i];}
   return A*0.5;
+}
+// true polygon centroid — the vertex average drifts to the squashed edge when the blob sits on the floor
+function centroidA(b){
+  const n=b.n,px=b.px,py=b.py; let A=0,x=0,y=0;
+  for(let i=0;i<n;i++){ const j=(i+1)%n, f=px[i]*py[j]-px[j]*py[i];
+    A+=f; x+=(px[i]+px[j])*f; y+=(py[i]+py[j])*f; }
+  if(Math.abs(A)<1e-3) return centroid(b);
+  return [x/(3*A), y/(3*A)];
 }
 
 // ---- interaction ----
@@ -164,8 +183,9 @@ cv.addEventListener('pointerup',e=>{onUp(e.clientX,e.clientY);});
 cv.addEventListener('pointercancel',()=>{grab=null;pointer.active=false;});
 
 // ---- spawning ----
+const NARROW=()=>W<520; // phones: smaller blobs, or they just crush each other against the walls
 function spawn(x,y,r){
-  r=r|| (34+Math.random()*30);
+  r=r|| (NARROW()? 22+Math.random()*14 : 34+Math.random()*30);
   x=x==null? 60+Math.random()*(W-120):x;
   y=y==null? -40-Math.random()*200:y;
   const b=makeBlob(x,y,r);
@@ -186,7 +206,11 @@ function step(dt){
       const n=b.n, px=b.px,py=b.py,vx=b.vx,vy=b.vy;
       let A=area(b);
       if(orient===1 && A<0) orient=-1; // first-frame orientation fix
-      const P = PRESS/Math.max(Math.abs(A),400);
+      // same pressure as before while the blob is at or under its target size, but it falls away
+      // sharply once puffed past it — that's what stops a crowd inflating each other into water drops
+      const Aabs=Math.max(Math.abs(A),400);
+      const over=Math.min(1, b.A0/Aabs);
+      const P = PRESS/Aabs*over*over;
       // gravity + light damping baked into accel arrays
       const fx=new Float32Array(n), fy=new Float32Array(n);
       for(let i=0;i<n;i++) fy[i]=G;
@@ -212,9 +236,10 @@ function step(dt){
         vy[i]=(vy[i]+fy[i]*h)*damp;
         px[i]+=vx[i]*h; py[i]+=vy[i]*h;
         // walls
-        if(px[i]<0){px[i]=0;vx[i]=-vx[i]*REST;vy[i]*=FRIC;}
-        else if(px[i]>W){px[i]=W;vx[i]=-vx[i]*REST;vy[i]*=FRIC;}
-        if(py[i]>H){py[i]=H;vy[i]=-vy[i]*REST;vx[i]*=FRIC;}
+        // walls: only reverse velocity that's actually heading into the wall (else vertices stick & flatten)
+        if(px[i]<0){px[i]=0;if(vx[i]<0)vx[i]=-vx[i]*REST;vy[i]*=FRIC;}
+        else if(px[i]>W){px[i]=W;if(vx[i]>0)vx[i]=-vx[i]*REST;vy[i]*=FRIC;}
+        if(py[i]>FLOOR){py[i]=FLOOR;if(vy[i]>0)vy[i]=-vy[i]*REST;vx[i]*=FRIC;}
         else if(py[i]<-400){py[i]=-400;vy[i]=Math.abs(vy[i])*.2;}
       }
     }
@@ -237,12 +262,15 @@ function step(dt){
         }
       }
     }
-    // grab drag: pull grabbed point toward pointer (strong)
+    // grab drag: haul the WHOLE blob after the finger (spring+damping), grabbed vertex leads
     if(grab && grab.blob && pointer.active){
-      const b=grab.blob, i=grab.idx;
-      const kx=(pointer.x-b.px[i]), ky=(pointer.y-b.py[i]);
-      b.vx[i]+=kx*60*h; b.vy[i]+=ky*60*h;
-      b.vx[i]*=0.6; b.vy[i]*=0.6;
+      const b=grab.blob, i=grab.idx, cap=v=>Math.max(-400,Math.min(400,v));
+      const kx=cap(pointer.x-b.px[i]), ky=cap(pointer.y-b.py[i]);
+      for(let k=0;k<b.n;k++){
+        const w=(k===i)?2.2:1;
+        b.vx[k]+=(kx*24*w - b.vx[k]*7)*h;
+        b.vy[k]+=(ky*24*w - b.vy[k]*7)*h;
+      }
     }
   }
   for(const b of blobs){ b.surprise*=Math.pow(0.02,dt); b.blink-=dt; }
@@ -264,14 +292,16 @@ function draw(){
   g.addColorStop(0,'#fff4f8'); g.addColorStop(.55,'#ffe9f2'); g.addColorStop(1,'#ffdcec');
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
   // soft floor
-  ctx.fillStyle='rgba(180,120,160,.08)'; ctx.fillRect(0,H-6,W,6);
+  ctx.fillStyle='rgba(180,120,160,.08)'; ctx.fillRect(0,FLOOR-6,W,6);
 
   for(const b of blobs){
-    const [cx,cy]=centroid(b);
+    const [cx,cy0]=centroidA(b);
     const A=Math.abs(area(b));
     const rr=Math.sqrt(A/Math.PI);
+    // keep the face inside the blob and on screen even when it's squashed flat on the floor
+    const cy=Math.min(cy0, FLOOR-rr*0.5);
     // shadow on floor
-    const sy=H-3, sScale=Math.max(.15,1-(sy-cy)/(H*.9));
+    const sy=FLOOR-3, sScale=Math.max(.15,1-(sy-cy)/(H*.9));
     ctx.save();
     ctx.globalAlpha=0.18*sScale;
     ctx.fillStyle='#7a2a5a';
@@ -367,7 +397,7 @@ function frame(t){
 let hintGone=false;
 function hideHint(){ if(!hintGone){hintGone=true; const h=document.getElementById('hint'); h.style.transition='opacity .5s'; h.style.opacity='0';} }
 document.getElementById('add').onclick=()=>{spawn(60+Math.random()*(W-120),-60);hideHint();};
-document.getElementById('rain').onclick=()=>{for(let i=0;i<14;i++) setTimeout(()=>spawn(),i*90);hideHint();};
+document.getElementById('rain').onclick=()=>{const n=NARROW()?7:14;for(let i=0;i<n;i++) setTimeout(()=>spawn(),i*90);hideHint();};
 document.getElementById('shake').onclick=()=>{
   for(const b of blobs){const ax=(Math.random()-.5)*1600, ay=-600-Math.random()*900;
     for(let i=0;i<b.n;i++){b.vx[i]+=ax;b.vy[i]+=ay;} b.surprise=1.4;}
@@ -376,8 +406,8 @@ document.getElementById('shake').onclick=()=>{
 document.getElementById('reset').onclick=()=>{blobs=[];init();};
 
 function init(){
-  const N=5;
-  for(let i=0;i<N;i++) spawn(W*(0.2+0.6*i/(N-1)), H*0.4-i*30, 40+Math.random()*20);
+  const N=NARROW()?3:5;
+  for(let i=0;i<N;i++) spawn(W*(0.2+0.6*i/(N-1)), H*0.4-i*30, NARROW()? 26+Math.random()*10 : 40+Math.random()*20);
   updateCount();
 }
 init();

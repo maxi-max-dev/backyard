@@ -17,7 +17,7 @@
     background:rgba(255,255,255,.72);border:1px solid rgba(120,150,140,.2);padding:8px;border-radius:15px;backdrop-filter:blur(10px);box-shadow:0 8px 24px rgba(90,120,110,.18)}
   .bar button{font:inherit;font-weight:700;font-size:13px;color:#4a5a55;border:none;background:#fff;padding:9px 15px;border-radius:11px;cursor:pointer;box-shadow:0 2px 0 rgba(90,120,110,.16)}
   .bar button:active{transform:translateY(1px)}
-  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.65;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+  .hint{position:fixed;left:50%;bottom:80px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.65;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
 </style>
 </head>
 <body>
@@ -29,17 +29,20 @@
 (()=>{
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 let W=0,H=0,dpr=1,cx=0,cy=0,headR=0;
+let seeds=[], wind={x:8,y:-2}, t=0;
 function resize(){
   dpr=Math.min(window.devicePixelRatio||1,2);
   W=window.innerWidth||document.documentElement.clientWidth||800;
   H=window.innerHeight||document.documentElement.clientHeight||600;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  cx=W*0.5; cy=H*0.5; headR=Math.min(W,H)*0.15;
+  const oldR=headR||0; cx=W*0.5; cy=H*0.5; headR=Math.min(W,H)*0.15;
+  // keep the attached head glued to the (new) centre, scaled to the new radius
+  const k=(oldR>0&&headR>0)?headR/oldR:1;
+  for(const s of seeds){ if(!s.attached)continue; s.d*=k; s.hx=cx+Math.cos(s.a)*s.d; s.hy=cy+Math.sin(s.a)*s.d; }
 }
 window.addEventListener('resize',resize); resize();
 
-let seeds=[], wind={x:8,y:-2}, t=0;
 function grow(){ seeds=[]; const n=150;
   for(let i=0;i<n;i++){ const a=Math.random()*6.28, d=Math.pow(Math.random(),0.7)*headR;
     seeds.push({a,d, hx:cx+Math.cos(a)*d, hy:cy+Math.sin(a)*d, attached:true, x:0,y:0,vx:0,vy:0,rot:a,rotV:0,life:1,ph:Math.random()*6.28,fil:6+((Math.random()*4)|0)}); }

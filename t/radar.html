@@ -29,7 +29,11 @@ function resize(){
   H=window.innerHeight||document.documentElement.clientHeight||600;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  cx=W/2; cy=H/2; R=Math.min(W,H)*0.42;
+  cx=W/2; cy=H/2;
+  const oldR=R;
+  // keep room for the degree labels drawn at R+16
+  R=Math.max(30,Math.min(Math.min(W,H)*0.42, W/2-34, H/2-34));
+  if(oldR>0 && R!==oldR) for(const b of blips) b.dist*=R/oldR; // keep blips inside the scope
 }
 window.addEventListener('resize',resize); resize();
 
@@ -65,7 +69,7 @@ function draw(){
   for(let i=0;i<12;i++){ const a=i*Math.PI/6; ctx.strokeStyle=i%3===0?'rgba(94,255,168,.35)':'rgba(94,255,168,.15)'; ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R);ctx.stroke(); }
   // degree labels
   ctx.fillStyle='rgba(120,255,190,.6)';ctx.font='11px monospace';ctx.textAlign='center';ctx.textBaseline='middle';
-  for(let i=0;i<12;i++){ const a=i*Math.PI/6 - Math.PI/2; const deg=(i*30); ctx.fillText((deg<100?('0'+deg).slice(-3):deg), cx+Math.cos(a)*(R+16),cy+Math.sin(a)*(R+16)); }
+  for(let i=0;i<12;i++){ const a=i*Math.PI/6 - Math.PI/2; const deg=(i*30); ctx.fillText(String(deg).padStart(3,'0'), cx+Math.cos(a)*(R+16),cy+Math.sin(a)*(R+16)); }
   // sweep wedge (trailing gradient)
   ctx.save(); ctx.beginPath();ctx.arc(cx,cy,R,0,6.28);ctx.clip(); ctx.globalCompositeOperation='lighter';
   const tw=1.1; for(let k=0;k<20;k++){ const a=sweep-k*0.055; const al=(1-k/20)*0.14; ctx.strokeStyle='rgba(94,255,168,'+al+')';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R);ctx.stroke(); }

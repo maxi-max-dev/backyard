@@ -46,12 +46,13 @@ function resize(){
 window.addEventListener('resize',resize);
 function build(){
   const teeth=[16,11,14,9,13]; // teeth counts
-  const s=Math.min(1, W/720);
-  K=7*s;
+  // 每格=1齿的半径单位，先算整排的视觉总宽（含两端半径和齿尖），再定 K
+  const xu=[0]; for(let i=1;i<teeth.length;i++) xu.push(xu[i-1]+teeth[i-1]+teeth[i]);
+  const span=xu[xu.length-1]+teeth[0]+teeth[teeth.length-1]+1.2;
+  K=Math.min(7, W*0.92/span);
   const rs=teeth.map(n=>n*K);
-  // chain centers in a row, distance = r_i + r_{i+1}
-  const xs=[0]; for(let i=1;i<rs.length;i++) xs.push(xs[i-1]+rs[i-1]+rs[i]);
-  const total=xs[xs.length-1]; const off=W/2-total/2;
+  const xs=xu.map(v=>v*K);
+  const total=xs[xs.length-1]; const off=(W-(total+rs[0]+rs[rs.length-1]))/2+rs[0];
   gears=rs.map((r,i)=>({x:off+xs[i],y:H*0.46,r,N:teeth[i],col:COLORS[i%COLORS.length],angle:0}));
   // add one branching gear meshing above gear index 2
   const bn=10, br=bn*K, gi=2;
@@ -62,6 +63,10 @@ function build(){
     const d=Math.hypot(gears[i].x-gears[j].x,gears[i].y-gears[j].y);
     if(Math.abs(d-(gears[i].r+gears[j].r))<K*0.8){ edges.push([i,j]); (gears[i].nb||(gears[i].nb=[])).push(j); (gears[j].nb||(gears[j].nb=[])).push(i); }
   }
+  // 每颗齿轮相对驱动轮(0号)的转角比，用于「抓哪颗就转哪颗」
+  gears[0].f=1; const seen=new Array(gears.length).fill(false); seen[0]=true; const q0=[0];
+  while(q0.length){ const i=q0.shift();
+    for(const j of (gears[i].nb||[])) if(!seen[j]){ seen[j]=true; gears[j].f=-gears[i].f*gears[i].N/gears[j].N; q0.push(j); } }
   driverAngle=0; propagate();
 }
 let driverAngle=0, omega=0.5, auto=true, dir=1;
@@ -120,11 +125,12 @@ function frame(now){ const dt=Math.min((now-last)/1000,0.05); last=now;
     driverAngle+=omega*dt; }
   propagate(); draw(); requestAnimationFrame(frame); }
 
-// ---- input: circular crank around gear0 ----
-let dragging=false, prevA=0;
-function angTo(x,y){ return Math.atan2(y-gears[0].y, x-gears[0].x); }
-cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);dragging=true;prevA=angTo(e.clientX,e.clientY);hideHint();});
-cv.addEventListener('pointermove',e=>{ if(!dragging)return; const a=angTo(e.clientX,e.clientY); let d=a-prevA; if(d>Math.PI)d-=6.283;if(d<-Math.PI)d+=6.283; driverAngle+=d; omega=d/0.016*0.3; prevA=a; });
+// ---- input: 绕任意一颗齿轮画圈 ----
+let dragging=false, prevA=0, crank=null;
+function nearest(x,y){ let g=gears[0],bd=1e9; for(const c of gears){const d=Math.hypot(x-c.x,y-c.y); if(d<bd){bd=d;g=c;}} return g; }
+function angTo(x,y){ return Math.atan2(y-crank.y, x-crank.x); }
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);dragging=true;crank=nearest(e.clientX,e.clientY);prevA=angTo(e.clientX,e.clientY);hideHint();});
+cv.addEventListener('pointermove',e=>{ if(!dragging)return; const a=angTo(e.clientX,e.clientY); let d=a-prevA; if(d>Math.PI)d-=6.283;if(d<-Math.PI)d+=6.283; const k=d/(crank.f||1); driverAngle+=k; omega=k/0.016*0.3; prevA=a; });
 cv.addEventListener('pointerup',()=>dragging=false);
 cv.addEventListener('pointercancel',()=>dragging=false);
 
@@ -132,6 +138,10 @@ let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;documen
 document.getElementById('auto').onclick=e=>{auto=!auto;e.target.classList.toggle('on',auto);};
 document.getElementById('rev').onclick=()=>{dir*=-1; if(!auto){auto=true;document.getElementById('auto').classList.add('on');}};
 document.getElementById('stop').onclick=()=>{auto=false;omega=0;document.getElementById('auto').classList.remove('on');};
+// 引导文字自动停在按钮条上方（手机上按钮会换行变高）
+function placeHint(){const b=document.querySelector('.bar'),h=document.getElementById('hint');
+  if(b&&h)h.style.bottom=(innerHeight-b.getBoundingClientRect().top+12)+'px';}
+addEventListener('resize',placeHint); placeHint();
 requestAnimationFrame(frame);
 })();
 </script>

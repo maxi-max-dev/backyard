@@ -16,7 +16,7 @@
   .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
     background:rgba(255,255,255,.72);border:1px solid rgba(90,150,170,.2);padding:8px;border-radius:15px;backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(70,130,160,.18)}
   .bar button{font:inherit;font-weight:700;font-size:13px;color:#2f5a6b;border:none;background:#fff;padding:9px 14px;border-radius:11px;cursor:pointer;box-shadow:0 2px 0 rgba(70,130,160,.16)}
-  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.65;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+  .hint{position:fixed;left:50%;bottom:80px;transform:translateX(-50%);z-index:7;font-size:13px;font-weight:600;opacity:.65;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
 </style>
 </head>
 <body>
@@ -38,7 +38,9 @@ function resize(){
   weeds=[]; for(let i=0;i<10;i++) weeds.push({x:20+Math.random()*(W-40),h:40+Math.random()*120,ph:Math.random()*6.28,hue:120+Math.random()*40});
   bubbles=[]; for(let i=0;i<26;i++) bubbles.push({x:Math.random()*W,y:Math.random()*H,r:1+Math.random()*3,sp:14+Math.random()*22,ph:Math.random()*6.28});
 }
-window.addEventListener('resize',resize); resize();
+window.addEventListener('resize',()=>{ const oW=W,oH=H; resize();
+  if(oW&&oH) for(const s of fish){ s.x*=W/oW; s.y*=H/oH; } });
+resize();
 
 const HUES=[20,45,180,200,330,280,140];
 let fish=[], food=[], t=0;
@@ -60,12 +62,12 @@ function step(dt){
     const m=40; if(s.x<m)ax+=80; if(s.x>W-m)ax-=80; if(s.y<H*0.12)ay+=80; if(s.y>sandY-m)ay-=90;
     s.vx+=ax*dt; s.vy+=ay*dt; const sp=Math.hypot(s.vx,s.vy),mx=tgt?150:70; if(sp>mx){s.vx*=mx/sp;s.vy*=mx/sp;} s.vx*=Math.pow(0.6,dt);s.vy*=Math.pow(0.6,dt);
     s.x+=s.vx*dt; s.y+=s.vy*dt;
-    s.x=Math.max(10,Math.min(W-10,s.x)); s.y=Math.max(H*0.1,Math.min(sandY-6,s.y));
+    s.x=Math.max(s.size*1.4,Math.min(W-s.size*1.4,s.x)); s.y=Math.max(H*0.1,Math.min(sandY-6,s.y));
   }
 }
 function drawFish(s){
   const ang=Math.atan2(s.vy,s.vx); const L=s.size, wag=Math.sin(s.wag)*0.5;
-  ctx.save(); ctx.translate(s.x,s.y); ctx.rotate(ang);
+  ctx.save(); ctx.translate(s.x,s.y); ctx.rotate(ang); if(Math.cos(ang)<0)ctx.scale(1,-1);
   ctx.fillStyle='hsl('+s.hue+',80%,58%)';
   // tail
   ctx.save();ctx.translate(-L*0.7,0);ctx.rotate(wag);ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(-L*0.7,-L*0.5);ctx.lineTo(-L*0.55,0);ctx.lineTo(-L*0.7,L*0.5);ctx.closePath();ctx.fill();ctx.restore();

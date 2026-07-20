@@ -33,8 +33,10 @@ function resize(){
   H=window.innerHeight||document.documentElement.clientHeight||600;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  const bw=Math.min(W*0.92,H*0.72,480); gap=bw*0.03; cw=(bw-gap*(COLS-1))/COLS; ch=cw*1.28;
-  const bh=ch*ROWS+gap*(ROWS-1); ox=(W-bw)/2; oy=(H-bh)/2+14;
+  // reserve room for the HUD above and the control bar below, then centre in what's left
+  const TOP=48, BOT=92, avail=Math.max(140,H-TOP-BOT);
+  const bw=Math.min(W*0.92,avail*0.78,480); gap=bw*0.03; cw=(bw-gap*(COLS-1))/COLS; ch=cw*1.28;
+  const bh=ch*ROWS+gap*(ROWS-1); ox=(W-bw)/2; oy=TOP+(avail-bh)/2;
 }
 window.addEventListener('resize',resize); resize();
 
@@ -43,8 +45,10 @@ const BACKS=['#ff9ec2','#ffcf8f','#a8e6a0','#8fd0ff','#c3b6ff','#ffb3d9','#9fe6d
 let cards, first, lock, resolveT, mismatch, moves, matched, t0, won, t=0;
 function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]];} return a; }
 function init(){
-  let deck=[]; for(let i=0;i<8;i++){ deck.push({e:EMO[i],bk:BACKS[i]},{e:EMO[i],bk:BACKS[i]}); } shuffle(deck);
-  cards=[]; let k=0; for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){ const d=deck[k++]; cards.push({r,c,e:d.e,bk:d.bk,up:false,matched:false,anim:1}); }
+  let deck=[]; for(let i=0;i<8;i++){ deck.push({e:EMO[i]},{e:EMO[i]}); } shuffle(deck);
+  // backs are shuffled independently, so card colour never gives the pair away
+  const backs=shuffle(BACKS.concat(BACKS));
+  cards=[]; let k=0; for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){ const d=deck[k]; cards.push({r,c,e:d.e,bk:backs[k],up:false,matched:false,anim:1}); k++; }
   first=null;lock=false;mismatch=false;moves=0;matched=0;won=false;t0=t;
 }
 resize(); init();

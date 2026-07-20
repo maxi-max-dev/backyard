@@ -15,11 +15,12 @@
   .title span{display:block;font-size:12px;opacity:.65;margin-top:2px;font-weight:600}
   .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:10px;
     background:rgba(255,255,255,.7);border:1px solid rgba(90,130,160,.2);padding:8px;border-radius:15px;backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(70,120,160,.18)}
-  .bar button{font:inherit;font-weight:800;font-size:15px;border:none;padding:11px 22px;border-radius:11px;cursor:pointer}
+  .bar button{font:inherit;font-weight:800;font-size:15px;border:none;padding:11px 22px;border-radius:11px;cursor:pointer;white-space:nowrap}
+  @media (max-width:420px){.bar button{padding:10px 14px;font-size:14px}}
   #pump{color:#fff;background:linear-gradient(90deg,#ff8a5c,#ff5a7a);box-shadow:0 3px 0 rgba(180,60,80,.4)}
   #tie{color:#0a5a3a;background:linear-gradient(90deg,#9be89b,#4dcf88);box-shadow:0 3px 0 rgba(30,120,70,.4)}
   .bar button:active{transform:translateY(2px)}
-  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.65;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.5)}
+  .hint{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);z-index:7;font-size:13px;font-weight:600;opacity:.65;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.5)}
 </style>
 </head>
 <body>
@@ -37,7 +38,7 @@ function resize(){
   H=window.innerHeight||document.documentElement.clientHeight||600;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  bx=W/2; by=H*0.52;
+  bx=W/2; by=H*0.50;
 }
 window.addEventListener('resize',resize); resize();
 
@@ -55,7 +56,7 @@ function reset(){ size=0.28; threshold=0.9+Math.random()*0.9; state='play'; wob=
 resize(); reset();
 
 function pump(){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); if(state!=='play')return; size+=0.12+Math.random()*0.05; wobV+=2.2; pumpSnd(size);
-  if(size>=threshold){ state='pop'; pop(); const R=size*Math.min(W,H)*0.22; for(let i=0;i<40;i++){const a=Math.random()*6.28,s=200+Math.random()*400;parts.push({x:bx,y:by,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:0.7,hue});}
+  if(size>=threshold){ state='pop'; pop(); const R=size*Math.min(W,H)*0.17; for(let i=0;i<40;i++){const a=Math.random()*6.28,s=200+Math.random()*400;parts.push({x:bx,y:by,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:0.7,hue});}
     setTimeout(()=>reset(),1100); } }
 function tie(){ if(state!=='play')return; state='float'; best=Math.max(best,Math.round(size*100)); ding(); for(let i=0;i<80;i++){const a=Math.random()*6.28,s=150+Math.random()*300;confetti.push({x:bx,y:by,vx:Math.cos(a)*s,vy:Math.sin(a)*s-120,life:1.6,hue:(Math.random()*360)|0,rot:0,rv:(Math.random()-.5)*10});} setTimeout(()=>reset(),1600); }
 
@@ -71,7 +72,7 @@ function draw(){
   ctx.fillStyle='rgba(255,255,255,.5)';for(const c of [[W*0.2,H*0.2,60],[W*0.75,H*0.28,80],[W*0.5,H*0.12,50]]){ctx.beginPath();ctx.ellipse(c[0],c[1],c[2],c[2]*0.5,0,0,6.28);ctx.fill();}
   const cy=by-(state==='float'?floatY:0);
   if(state!=='pop'){
-    const base=size*Math.min(W,H)*0.22; const strain=Math.min(1,size/threshold);
+    const base=size*Math.min(W,H)*0.17; const strain=Math.min(1,size/threshold);
     const rx=base*(1+wob*0.12), ry=base*1.18*(1-wob*0.12);
     const col='hsl('+hue+',85%,'+(62-strain*18)+'%)';
     // string
@@ -92,7 +93,7 @@ function draw(){
   for(const p of confetti){ctx.save();ctx.globalAlpha=Math.max(0,p.life/1.6);ctx.translate(p.x,p.y);ctx.rotate(p.rot);ctx.fillStyle='hsl('+p.hue+',90%,60%)';ctx.fillRect(-4,-4,8,8);ctx.restore();}
   // HUD
   ctx.fillStyle='#3a5a72';ctx.font='800 26px -apple-system,sans-serif';ctx.textAlign='center';ctx.textBaseline='alphabetic';
-  ctx.fillText('大小 '+Math.round(size*100)+'    最大 '+best, W/2, 60);
+  ctx.fillText('大小 '+Math.round(size*100)+'    最大 '+best, W/2, W<520?102:60);
   if(state==='pop'){ ctx.fillStyle='#ff4d4d';ctx.font='800 44px -apple-system,sans-serif';ctx.fillText('砰！爆了 💥',W/2,H*0.32); }
   if(state==='float'){ ctx.fillStyle='#2e9e5b';ctx.font='800 34px -apple-system,sans-serif';ctx.fillText('放飞成功 '+Math.round(size*100),W/2,H*0.22); }
   ctx.textAlign='left';

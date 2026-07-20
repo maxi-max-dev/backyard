@@ -17,7 +17,7 @@
     background:rgba(255,255,255,.82);border:1px solid rgba(150,140,120,.2);padding:8px 10px;border-radius:16px;backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(150,130,90,.18)}
   .bar .dot{width:38px;height:38px;border-radius:50%;cursor:pointer;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.15)}
   .bar button{font:inherit;font-weight:700;font-size:13px;color:#5a5248;border:none;background:#eee;padding:9px 12px;border-radius:11px;cursor:pointer;margin-left:4px}
-  .hint{position:fixed;left:50%;bottom:66px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+  .hint{position:fixed;left:50%;bottom:82px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
 </style>
 </head>
 <body>
@@ -30,13 +30,16 @@
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 let W=0,H=0,dpr=1;
 function resize(){
+  const oW=W,oH=H;
   dpr=Math.min(window.devicePixelRatio||1,2);
   W=window.innerWidth||document.documentElement.clientWidth||800;
   H=window.innerHeight||document.documentElement.clientHeight||600;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
+  // 画布变尺寸时把颜色坨按比例带过来，否则它们留在旧坐标上跑到屏幕外再也拖不回来
+  if(oW&&oH&&blobs.length){ for(const b of blobs){ b.x=Math.max(b.r,Math.min(W-b.r,b.x*W/oW)); b.y=Math.max(b.r,Math.min(H-b.r,b.y*H/oH)); } }
 }
-window.addEventListener('resize',resize); resize();
+window.addEventListener('resize',resize);
 
 // RYB -> RGB trilinear (art-class color mixing)
 const CORN={'000':[1,1,1],'001':[.16,.37,.6],'010':[1,1,0],'011':[0,.66,.2],'100':[1,0,0],'101':[.5,0,.5],'110':[1,.5,0],'111':[.15,.08,.02]};
@@ -49,7 +52,15 @@ function shade(rgb,amt){ const m=rgb.match(/\d+/g).map(Number); return 'rgb('+m.
 
 const PAL=[['红',[1,0,0]],['黄',[0,1,0]],['蓝',[0,0,1]],['白',[0,0,0]],['黑',[1,1,1]]];
 let blobs=[];
-function addBlob(ryb,x,y){ blobs.push({x:x||W*(0.3+Math.random()*0.4),y:y||H*(0.35+Math.random()*0.25),r:34,ryb:ryb.slice(),vol:1}); if(blobs.length>30)blobs.shift(); }
+function addBlob(ryb,x,y){
+  if(x===undefined){ // 找个不压在别人身上的落点，范围也放开到整块画布
+    let best=[W/2,H/2],bd=-1e9;
+    for(let k=0;k<24;k++){ const px=W*(0.12+Math.random()*0.76), py=H*(0.20+Math.random()*0.52);
+      let d=1e9; for(const b of blobs) d=Math.min(d,Math.hypot(b.x-px,b.y-py)-b.r);
+      if(d>bd){bd=d;best=[px,py];} if(bd>44)break; }
+    x=best[0]; y=best[1];
+  }
+  blobs.push({x,y,r:34,ryb:ryb.slice(),vol:1}); if(blobs.length>30)blobs.shift(); }
 resize();
 
 function draw(){

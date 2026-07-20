@@ -14,7 +14,7 @@
   .title b{font-size:19px;font-weight:800;letter-spacing:2px;text-shadow:0 1px 0 rgba(255,255,255,.7)}
   .title span{display:block;font-size:12px;opacity:.62;margin-top:2px;font-weight:600}
   .bar{position:fixed;left:50%;bottom:15px;transform:translateX(-50%);z-index:6;
-    display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:97vw;
+    display:flex;gap:6px;flex-wrap:wrap;justify-content:center;width:max-content;max-width:97vw;
     background:rgba(255,255,255,.8);border:1px solid rgba(90,110,130,.2);
     padding:7px;border-radius:15px;backdrop-filter:blur(10px);box-shadow:0 8px 26px rgba(70,90,120,.2)}
   .bar button{font:inherit;font-weight:700;font-size:13px;color:#3c4652;border:2px solid transparent;
@@ -23,8 +23,14 @@
   .bar button:active{transform:translateY(1px)}
   .bar button .dot{width:13px;height:13px;border-radius:4px;display:inline-block}
   .bar button.sel{border-color:#3c4652;box-shadow:0 0 0 2px rgba(60,70,82,.15),0 2px 0 rgba(70,90,120,.14)}
-  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
+  .hint{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
     opacity:.55;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+  @media (max-width:460px){
+    .bar{gap:4px;padding:5px}
+    .bar button{font-size:12px;padding:6px 8px;gap:4px;border-radius:8px}
+    .bar button .dot{width:10px;height:10px;border-radius:3px}
+    .bar button .lbl{display:none}
+  }
 </style>
 </head>
 <body>
@@ -98,15 +104,17 @@ function stepSim(){
         grid[i]=PLANT; ttl[i]=0;
       } else if(t===PLANT){
         // grow up/side into empty if near water, slowly
-        if(Math.random()<0.04){
+        if(Math.random()<0.15){
           const cand=[];
           if(y>0 && grid[i-gw]===EMPTY)cand.push(i-gw);
           if(x>0 && grid[i-1]===EMPTY)cand.push(i-1);
           if(x<gw-1 && grid[i+1]===EMPTY)cand.push(i+1);
           // only grow if a water neighbor feeds it
           let wet=false;
-          if(x>0&&grid[i-1]===WATER)wet=true; if(x<gw-1&&grid[i+1]===WATER)wet=true;
-          if(y<gh-1&&grid[i+gw]===WATER)wet=true;
+          for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+            const nx=x+dx,ny=y+dy; if(nx<0||nx>=gw||ny<0||ny>=gh)continue;
+            if(grid[ny*gw+nx]===WATER)wet=true;
+          }
           if(wet && cand.length){ const c=cand[(Math.random()*cand.length)|0]; grid[c]=PLANT; ttl[c]=0; moved[c]=1; }
         }
       } else if(t===FIRE){
@@ -158,7 +166,7 @@ function paintAt(cx,cy){
     const x=gx+ox,y=gy+oy; if(x<0||x>=gw||y<0||y>=gh)continue;
     const i=idx(x,y);
     if(cur===EMPTY){ grid[i]=EMPTY;ttl[i]=0; }
-    else if(grid[i]===EMPTY || cur===FIRE){
+    else if(grid[i]===EMPTY || (cur===FIRE && (grid[i]===PLANT||grid[i]===SEED))){
       if(cur===WATER && Math.random()<0.4)continue; // water a bit sparse
       grid[i]=cur; if(cur===FIRE)ttl[i]=20+((Math.random()*16)|0);
     }
@@ -178,7 +186,7 @@ MAT.forEach(m=>{
   btn.onclick=()=>{cur=m.id;[...bar.children].forEach(c=>c.classList.remove('sel'));btn.classList.add('sel');};
   bar.appendChild(btn);
 });
-const clr=document.createElement('button'); clr.textContent='🧹 清空';
+const clr=document.createElement('button'); clr.innerHTML='🧹<span class="lbl">清空</span>';
 clr.onclick=()=>{grid.fill(0);ttl.fill(0);}; bar.appendChild(clr);
 
 let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
@@ -187,8 +195,13 @@ let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;documen
 function seed(){
   const gy=Math.floor(gh*0.72);
   for(let x=Math.floor(gw*0.2);x<gw*0.8;x++){ grid[idx(x,gy)]=STONE; grid[idx(x,gy+1)]=STONE; }
-  for(let x=Math.floor(gw*0.5);x<gw*0.5+8;x++)for(let y=8;y<24;y++) grid[idx(x,y)]=SAND;
-  for(let x=Math.floor(gw*0.25);x<gw*0.35;x++)for(let y=gy-14;y<gy;y++) if(Math.random()<0.55) grid[idx(x,y)]=WATER;
+  // sand column, pouring from near the top
+  const sx=Math.floor(gw*0.5), sw=Math.max(8,Math.floor(gw*0.05)), sy0=Math.floor(gh*0.06), sy1=Math.floor(gh*0.22);
+  for(let x=sx;x<sx+sw;x++)for(let y=sy0;y<sy1;y++) grid[idx(x,y)]=SAND;
+  // water basin: side walls on the ledge so the pool actually holds
+  const wx0=Math.floor(gw*0.25), wx1=Math.floor(gw*0.36), wy=gy-Math.max(6,Math.floor(gh*0.10));
+  for(let y=wy;y<gy;y++){ grid[idx(wx0-1,y)]=STONE; grid[idx(wx1,y)]=STONE; }
+  for(let x=wx0;x<wx1;x++)for(let y=wy;y<gy;y++) if(Math.random()<0.55) grid[idx(x,y)]=WATER;
 }
 seed();
 requestAnimationFrame(frame);

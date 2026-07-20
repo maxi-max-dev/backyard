@@ -21,14 +21,21 @@
 <script>
 (()=>{
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
-let W=0,H=0,dpr=1,floorY=0;
+let W=0,H=0,dpr=1,floorY=0,PH=0,started=false;
 function resize(){
   dpr=Math.min(window.devicePixelRatio||1,2);
   W=window.innerWidth||document.documentElement.clientWidth||800;
   H=window.innerHeight||document.documentElement.clientHeight||600;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  floorY=H*0.68;
+  floorY=H*0.68; PH=Math.min(130,H*0.22);
+  // re-seat the hero on its platform and re-aim the camera for the new size
+  if(started){
+    hero.x=plats[curIdx].x; hero.y=floorY-hero.r; hero.vx=0; hero.vy=0;
+    charging=false; power=0; sq=0;
+    camX=camTarget=plats[curIdx].x-W*0.28;
+    if(state==='jump'||state==='scroll') state='ready';
+  }
 }
 window.addEventListener('resize',resize); resize();
 
@@ -38,13 +45,14 @@ function bl(f,d){ if(!actx)return;const t=actx.currentTime;const o=actx.createOs
 function land(){bl(660,0.1);} function perfect(){bl(880,0.08);setTimeout(()=>bl(1200,0.1),80);} function fail(){bl(160,0.4);}
 
 const COLS=['#ff8fa3','#ffb35c','#ffd24d','#7ad08a','#5cc4ff','#a58cff','#ff9ed6'];
-let plats, curIdx, hero, camX, state, score, best=0, power, charging, chargeT, sq;
-function reset(){ plats=[]; let x=W*0.28; for(let i=0;i<4;i++){ plats.push({x, w:60+Math.random()*40, col:COLS[i%COLS.length]}); x+=140+Math.random()*150; }
-  curIdx=0; hero={x:plats[0].x,y:floorY-26,vx:0,vy:0,r:15}; camX=0; state='ready'; score=0; power=0; charging=false; sq=0; }
-resize(); reset();
+let plats, curIdx, hero, camX, state, score, best=0, power, charging, chargeT, sq, camTarget=0, showPerfect=0;
+// gap between platforms, capped so the next one always fits on narrow screens
+function gapRand(){ const gmax=Math.max(150,Math.min(300,W*0.55)); return 120+Math.random()*(gmax-120); }
+function reset(){ plats=[]; let x=W*0.28; for(let i=0;i<4;i++){ plats.push({x, w:60+Math.random()*40, col:COLS[i%COLS.length]}); x+=gapRand(); }
+  curIdx=0; hero={x:plats[0].x,y:floorY-15,vx:0,vy:0,r:15}; camX=0; camTarget=0; state='ready'; score=0; power=0; charging=false; sq=0; }
+resize(); reset(); started=true;
 
-const PW=Math.min(70,W*0.09), PH=Math.min(130,H*0.22);
-function addPlat(){ const last=plats[plats.length-1]; plats.push({x:last.x+120+Math.random()*180, w:52+Math.random()*46, col:COLS[(plats.length)%COLS.length]}); }
+function addPlat(){ const last=plats[plats.length-1]; plats.push({x:last.x+gapRand(), w:52+Math.random()*46, col:COLS[(plats.length)%COLS.length]}); }
 
 function step(dt){
   if(charging){ chargeT+=dt; power=Math.min(1.4,chargeT); sq=Math.min(0.4,power*0.32); }
@@ -59,7 +67,6 @@ function step(dt){
   if(state==='scroll'){ camX+=(camTarget-camX)*Math.min(1,dt*8); if(Math.abs(camTarget-camX)<1){camX=camTarget;state='ready';} }
   if(showPerfect>0)showPerfect-=dt;
 }
-let camTarget=0, showPerfect=0;
 function drawHero(x,y){
   ctx.save();ctx.translate(x,y);
   const w=hero.r*2*(1+sq*0.5), h=hero.r*2*(1-sq);

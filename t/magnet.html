@@ -17,7 +17,7 @@
     background:rgba(255,255,255,.8);border:1px solid rgba(120,110,90,.2);padding:8px;border-radius:15px;backdrop-filter:blur(10px);box-shadow:0 8px 24px rgba(120,100,70,.18)}
   .bar button{font:inherit;font-weight:700;font-size:13px;color:#4a4438;border:none;background:#fff;padding:9px 13px;border-radius:11px;cursor:pointer;box-shadow:0 2px 0 rgba(120,100,70,.16)}
   .bar button:active{transform:translateY(1px)}
-  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
+  .hint{position:fixed;left:50%;bottom:80px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
     opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
 </style>
 </head>
@@ -33,22 +33,31 @@
 <script>
 (()=>{
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
-let W=0,H=0,dpr=1,fil=[],magnets=[];
+let W=0,H=0,dpr=1,fil=[],magnets=[],dirty=true;
+const oc=document.createElement('canvas'), octx=oc.getContext('2d');
 function resize(){
   dpr=Math.min(window.devicePixelRatio||1,2);
+  const oW=W,oH=H;
   W=window.innerWidth||document.documentElement.clientWidth||800;
   H=window.innerHeight||document.documentElement.clientHeight||600;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  const n=Math.round(W*H/150);
+  oc.width=W*dpr; oc.height=H*dpr; octx.setTransform(dpr,0,0,dpr,0,0);
+  const n=Math.min(Math.round(W*H/150),3200);
   fil=[]; for(let i=0;i<n;i++) fil.push({x:Math.random()*W,y:Math.random()*H});
+  // keep the hint clear of the control bar (which wraps to 2 rows on narrow screens)
+  document.getElementById('hint').style.bottom=(document.querySelector('.bar').offsetHeight+26)+'px';
   if(!magnets.length) resetMagnets();
+  else if(oW>0&&oH>0){ // keep the magnets on screen and sized for the new viewport
+    const sx=W/oW, sy=H/oH, L=Math.min(70,W*0.11);
+    for(const m of magnets){ m.x*=sx; m.y*=sy; m.len=L; } }
+  dirty=true;
 }
 window.addEventListener('resize',resize);
-function resetMagnets(){ magnets=[
-  {x:W*0.36,y:H*0.5,ang:0,len:70,q:9000,flip:1},
-  {x:W*0.64,y:H*0.5,ang:0,len:70,q:9000,flip:-1}
-]; }
+function resetMagnets(){ const L=Math.min(70,W*0.11); magnets=[
+  {x:W*0.36,y:H*0.5,ang:0,len:L,q:9000,flip:1},
+  {x:W*0.64,y:H*0.5,ang:0,len:L,q:9000,flip:-1}
+]; dirty=true; }
 resize();
 
 function poles(){ const P=[];
@@ -59,21 +68,25 @@ function field(px,py,P){ let fx=0,fy=0;
   for(const p of P){ const dx=px-p.x, dy=py-p.y; let r2=dx*dx+dy*dy+80; const inv=p.q/(r2*Math.sqrt(r2)); fx+=dx*inv; fy+=dy*inv; }
   return [fx,fy]; }
 
-function draw(){
-  ctx.fillStyle='#f4efe4'; ctx.fillRect(0,0,W,H);
-  // subtle paper texture dots
+// the filings only change when a magnet does, so cache them offscreen
+function drawFilings(){
+  octx.fillStyle='#f4efe4'; octx.fillRect(0,0,W,H);
   const P=poles();
-  ctx.strokeStyle='#33383f'; ctx.lineCap='round';
+  octx.strokeStyle='#33383f'; octx.lineCap='round';
   for(const f of fil){
     const [fx,fy]=field(f.x,f.y,P); const mag=Math.hypot(fx,fy);
     const a=mag/(mag+0.9);
     if(a<0.03)continue;
     const ang=Math.atan2(fy,fx); const L=3.2+a*5.5;
-    ctx.globalAlpha=Math.min(0.85,a); ctx.lineWidth=0.8+a*1.2;
+    octx.globalAlpha=Math.min(0.85,a); octx.lineWidth=0.8+a*1.2;
     const cx=Math.cos(ang)*L, cy=Math.sin(ang)*L;
-    ctx.beginPath(); ctx.moveTo(f.x-cx,f.y-cy); ctx.lineTo(f.x+cx,f.y+cy); ctx.stroke();
+    octx.beginPath(); octx.moveTo(f.x-cx,f.y-cy); octx.lineTo(f.x+cx,f.y+cy); octx.stroke();
   }
-  ctx.globalAlpha=1;
+  octx.globalAlpha=1;
+}
+function draw(){
+  if(dirty){ drawFilings(); dirty=false; }
+  ctx.drawImage(oc,0,0,W,H);
   // magnets
   for(const m of magnets){
     ctx.save(); ctx.translate(m.x,m.y); ctx.rotate(m.ang);
@@ -110,13 +123,13 @@ function frame(now){ last=now; draw(); requestAnimationFrame(frame); }
 let drag=-1, offx=0, offy=0;
 function pick(x,y){ for(let i=0;i<magnets.length;i++){ const m=magnets[i]; const dx=x-m.x,dy=y-m.y; if(Math.hypot(dx,dy)<m.len+30) return i; } return -1; }
 cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId); const i=pick(e.clientX,e.clientY); if(i>=0){drag=i;offx=e.clientX-magnets[i].x;offy=e.clientY-magnets[i].y;hideHint();}});
-cv.addEventListener('pointermove',e=>{ if(drag>=0){ magnets[drag].x=e.clientX-offx; magnets[drag].y=e.clientY-offy; }});
+cv.addEventListener('pointermove',e=>{ if(drag>=0){ magnets[drag].x=e.clientX-offx; magnets[drag].y=e.clientY-offy; dirty=true; }});
 cv.addEventListener('pointerup',()=>drag=-1);
 cv.addEventListener('pointercancel',()=>drag=-1);
 
 let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
-document.getElementById('flip').onclick=()=>{ magnets[1].flip*=-1; };
-document.getElementById('rot').onclick=()=>{ for(const m of magnets) m.ang+=Math.PI/6; };
+document.getElementById('flip').onclick=()=>{ magnets[1].flip*=-1; dirty=true; };
+document.getElementById('rot').onclick=()=>{ for(const m of magnets) m.ang+=Math.PI/6; dirty=true; };
 document.getElementById('reset').onclick=()=>{ resetMagnets(); };
 requestAnimationFrame(frame);
 })();

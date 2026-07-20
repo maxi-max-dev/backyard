@@ -17,7 +17,7 @@
     background:rgba(255,255,255,.7);border:1px solid rgba(150,130,100,.2);padding:8px;border-radius:14px;backdrop-filter:blur(8px)}
   .bar button{font:inherit;font-weight:700;font-size:13px;color:#6b6459;border:none;background:#bbada0;color:#fff;padding:9px 15px;border-radius:9px;cursor:pointer}
   .bar button:active{transform:translateY(1px)}
-  .hint{position:fixed;left:50%;bottom:62px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
+  .hint{position:fixed;left:50%;bottom:80px;transform:translateX(-50%);z-index:7;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -44,8 +44,8 @@ const COLS={2:'#eee4da',4:'#ede0c8',8:'#f2b179',16:'#f59563',32:'#f67c5f',64:'#f
 function tcol(v){ return COLS[v]||'#3c3a32'; }
 function txtcol(v){ return v<=4?'#776e65':'#f9f6f2'; }
 
-let grid, tiles, score=0, best=0, anim=1, over=false, won=false;
-function init(){ grid=Array.from({length:N},()=>Array(N).fill(null)); tiles=[]; score=0; over=false; won=false; anim=1; addRandom(); addRandom(); }
+let grid, tiles, score=0, best=0, anim=1, over=false, won=false, wonOnce=false;
+function init(){ grid=Array.from({length:N},()=>Array(N).fill(null)); tiles=[]; score=0; over=false; won=false; wonOnce=false; anim=1; addRandom(); addRandom(); }
 function empties(){ const e=[]; for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(!grid[r][c])e.push([r,c]); return e; }
 function addRandom(){ const e=empties(); if(!e.length)return; const [r,c]=e[(Math.random()*e.length)|0];
   const t={val:Math.random()<0.9?2:4,r,c,pr:r,pc:c,isNew:true,merged:false,remove:false}; grid[r][c]=t; tiles.push(t); }
@@ -54,7 +54,7 @@ resize(); init();
 const DIRS={left:[0,-1],right:[0,1],up:[-1,0],down:[1,0]};
 function within(r,c){return r>=0&&r<N&&c>=0&&c<N;}
 function move(dir){
-  if(over||anim<1)return; const [dr,dc]=DIRS[dir];
+  if(over||anim<1)return; won=false; const [dr,dc]=DIRS[dir];
   const rows=[0,1,2,3], cols=[0,1,2,3]; if(dr>0)rows.reverse(); if(dc>0)cols.reverse();
   for(const t of tiles){ t.pr=t.r;t.pc=t.c;t.merged=false;t.isNew=false;t.remove=false; }
   let moved=false;
@@ -62,7 +62,7 @@ function move(dir){
     let nr=r,nc=c; while(within(nr+dr,nc+dc)&&!grid[nr+dr][nc+dc]){nr+=dr;nc+=dc;}
     const tr=nr+dr,tc=nc+dc;
     if(within(tr,tc)){ const o=grid[tr][tc]; if(o&&o.val===t.val&&!o.merged){
-      grid[r][c]=null; o.val*=2; o.merged=true; score+=o.val; if(o.val===2048)won=true;
+      grid[r][c]=null; o.val*=2; o.merged=true; score+=o.val; if(o.val===2048&&!wonOnce){won=true;wonOnce=true;}
       t.r=tr;t.c=tc;t.remove=true; moved=true; continue; } }
     if(nr!==r||nc!==c){ grid[r][c]=null; grid[nr][nc]=t; t.r=nr;t.c=nc; moved=true; }
   }
@@ -99,7 +99,7 @@ function draw(){
   if(over||won){ ctx.fillStyle='rgba(250,248,239,0.78)'; rr(bx,by,board,board,10); ctx.fill();
     ctx.fillStyle=won?'#edc22e':'#8a7a66'; ctx.textAlign='center'; ctx.font='800 40px -apple-system,sans-serif';
     ctx.fillText(won?'拼出 2048！🎉':'没有空位了', W/2, by+board*0.42);
-    ctx.fillStyle='#6b6459'; ctx.font='700 18px -apple-system,sans-serif'; ctx.fillText('得分 '+score+'   点新游戏再来', W/2, by+board*0.42+40); ctx.textAlign='left'; }
+    ctx.fillStyle='#6b6459'; ctx.font='700 18px -apple-system,sans-serif'; ctx.fillText(won?'得分 '+score+'   再划一下继续玩':'得分 '+score+'   点新游戏再来', W/2, by+board*0.42+40); ctx.textAlign='left'; }
 }
 let last=performance.now();
 function frame(now){ const dt=Math.min((now-last)/1000,0.05); last=now;

@@ -17,7 +17,7 @@
     background:rgba(30,24,54,.5);border:1px solid rgba(160,150,255,.22);padding:8px 12px;border-radius:15px;backdrop-filter:blur(8px)}
   .bar button{font:inherit;font-weight:700;font-size:13px;color:#e6e2ff;border:1px solid rgba(160,150,255,.25);background:rgba(255,255,255,.05);padding:8px 14px;border-radius:11px;cursor:pointer}
   .bar button.on{background:linear-gradient(90deg,#7a6cff,#c05cff);border-color:transparent;color:#fff}
-  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.55;pointer-events:none;transition:opacity .6s;white-space:nowrap}
+  .hint{position:fixed;left:50%;bottom:78px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.55;pointer-events:none;transition:opacity .6s;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -37,8 +37,9 @@ function resize(){
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
   kbW=Math.min(W*0.94,820); kbH=Math.min(H*0.5,300); kbX=(W-kbW)/2; kbY=H*0.28; ww=kbW/WHITE;
+  buildKeys(); makeCache(); // 尺寸变了必须重算琴键坐标，否则键位和键宽对不上、大半琴键跑到屏幕外
 }
-window.addEventListener('resize',resize); resize();
+window.addEventListener('resize',resize);
 
 let actx=null,master=null;
 function initAudio(){ if(actx)return; try{actx=new(window.AudioContext||window.webkitAudioContext)();master=actx.createGain();master.gain.value=0.35;master.connect(actx.destination);}catch(e){} }
@@ -50,12 +51,23 @@ function play(semi){ if(!actx)return; const f=261.63*Math.pow(2,semi/12); const 
   o.connect(g);o2.connect(g2);g.connect(master);g2.connect(master);o.start(t);o2.start(t);o.stop(t+1.5);o2.stop(t+0.8); }
 
 // build keys: white keys with semitone, black keys positioned
-let whites=[], blacks=[];
+let whites=[], blacks=[], bgc=null, bkOn=null, bkOff=null;
+// 背景渐变+整屏光晕每帧重画很贵，缓存成一张离屏图；黑键渐变也只建一次复用
+function makeCache(){
+  bgc=document.createElement('canvas'); bgc.width=Math.max(1,Math.round(W*dpr)); bgc.height=Math.max(1,Math.round(H*dpr));
+  const b=bgc.getContext('2d'); b.setTransform(dpr,0,0,dpr,0,0);
+  const g=b.createLinearGradient(0,0,0,H);g.addColorStop(0,'#1a1430');g.addColorStop(1,'#0e0a1c');b.fillStyle=g;b.fillRect(0,0,W,H);
+  const glow=b.createRadialGradient(W/2,kbY,10,W/2,kbY,kbW*0.6);glow.addColorStop(0,'rgba(140,110,255,0.12)');glow.addColorStop(1,'rgba(140,110,255,0)');b.fillStyle=glow;b.fillRect(0,0,W,H);
+  b.fillStyle='#7a2a4a';b.fillRect(kbX-6,kbY-10,kbW+12,10); // 呢子条
+  const bh=kbH*0.62;
+  bkOff=ctx.createLinearGradient(0,kbY,0,kbY+bh);bkOff.addColorStop(0,'#33303e');bkOff.addColorStop(1,'#15131c');
+  bkOn=ctx.createLinearGradient(0,kbY,0,kbY+bh);bkOn.addColorStop(0,'#c08a3a');bkOn.addColorStop(1,'#e0a83c');
+}
 function buildKeys(){ whites=[]; blacks=[];
   for(let i=0;i<WHITE;i++){ const oc=Math.floor(i/7), pc=whitePC[i%7]; whites.push({i,semi:oc*12+pc,x:kbX+i*ww,lit:0,label:'CDEFGAB'[i%7]}); }
   for(let oc=0;oc<OCT;oc++){ for(const wa of blackAfter){ const wi=oc*7+wa; const x=kbX+(wi+1)*ww; const semi=whites[wi].semi+1; blacks.push({x:x-ww*0.32,w:ww*0.64,semi,lit:0}); } }
 }
-resize(); buildKeys();
+resize();
 
 let t=0;
 function hit(mx,my){
@@ -68,11 +80,7 @@ function hit(mx,my){
 function press(k){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); k.lit=1; play(k.semi); hideHint(); }
 
 function draw(){
-  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#1a1430');g.addColorStop(1,'#0e0a1c');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
-  // glow behind
-  const glow=ctx.createRadialGradient(W/2,kbY,10,W/2,kbY,kbW*0.6);glow.addColorStop(0,'rgba(140,110,255,0.12)');glow.addColorStop(1,'rgba(140,110,255,0)');ctx.fillStyle=glow;ctx.fillRect(0,0,W,H);
-  // felt strip
-  ctx.fillStyle='#7a2a4a';ctx.fillRect(kbX-6,kbY-10,kbW+12,10);
+  ctx.drawImage(bgc,0,0,W,H); // 背景+光晕+呢子条，缓存好的
   // white keys
   for(const w of whites){ const x=w.x; ctx.fillStyle=w.lit>0?'#fff7c0':'#f4f4fa'; ctx.strokeStyle='#c8c8d6';ctx.lineWidth=1;
     ctx.beginPath();ctx.roundRect?ctx.roundRect(x+1,kbY,ww-2,kbH,[0,0,6,6]):ctx.rect(x+1,kbY,ww-2,kbH); ctx.fill();ctx.stroke();
@@ -81,14 +89,14 @@ function draw(){
   }
   // black keys
   const bh=kbH*0.62;
-  for(const b of blacks){ const g2=ctx.createLinearGradient(0,kbY,0,kbY+bh);g2.addColorStop(0,b.lit>0?'#c08a3a':'#33303e');g2.addColorStop(1,b.lit>0?'#e0a83c':'#15131c');ctx.fillStyle=g2;
+  for(const b of blacks){ ctx.fillStyle=b.lit>0?bkOn:bkOff;
     ctx.beginPath();ctx.roundRect?ctx.roundRect(b.x,kbY,b.w,bh,[0,0,4,4]):ctx.rect(b.x,kbY,b.w,bh);ctx.fill();
     if(b.lit>0){ ctx.shadowColor='rgba(255,190,90,'+b.lit+')';ctx.shadowBlur=14;ctx.strokeStyle='rgba(255,200,100,'+b.lit+')';ctx.lineWidth=2;ctx.beginPath();ctx.rect(b.x,kbY,b.w,bh);ctx.stroke();ctx.shadowBlur=0; }
   }
   for(const w of whites)if(w.lit>0)w.lit-=0.02; for(const b of blacks)if(b.lit>0)b.lit-=0.02;
 }
 let last=performance.now();
-function frame(now){ const dt=Math.min((now-last)/1000,0.04); last=now; t+=dt; if(demoOn)demoStep(dt); draw(); requestAnimationFrame(frame); }
+function frame(now){ const dt=Math.min((now-last)/1000,0.04); last=now; t+=dt; if(demoOn)demoStep(); draw(); requestAnimationFrame(frame); }
 
 // input
 cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);const h=hit(e.clientX,e.clientY);if(h)press(h.k);});
@@ -97,9 +105,14 @@ addEventListener('keydown',e=>{ if(e.repeat)return; const m=KMAP[e.key]; if(m!==
 let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
 // demo: twinkle twinkle (semitones from C4)
 const TUNE=[[0,.5],[0,.5],[7,.5],[7,.5],[9,.5],[9,.5],[7,1],[5,.5],[5,.5],[4,.5],[4,.5],[2,.5],[2,.5],[0,1]];
-let demoOn=false,demoI=0,demoT=0;
-function demoStep(dt){ demoT-=dt; if(demoT<=0){ if(demoI>=TUNE.length){demoOn=false;document.getElementById('demo').classList.remove('on');return;} const [semi,dur]=TUNE[demoI]; initAudio();if(actx&&actx.state==='suspended')actx.resume(); play(semi); const w=whites.find(x=>x.semi===semi);if(w)w.lit=1;else{const b=blacks.find(x=>x.semi===semi);if(b)b.lit=1;} demoT=dur*0.5; demoI++; } }
-document.getElementById('demo').onclick=e=>{ if(demoOn){demoOn=false;e.target.classList.remove('on');return;} demoOn=true;demoI=0;demoT=0;e.target.classList.add('on'); initAudio();if(actx&&actx.state==='suspended')actx.resume(); hideHint(); };
+let demoOn=false,demoI=0,demoAt=0;
+// 用真实时间戳推进，别依赖被 clamp 过的 dt，否则低帧率机器上会变慢动作
+function demoStep(){ const now=performance.now()/1000; if(!demoAt)demoAt=now; if(now<demoAt)return;
+  if(demoI>=TUNE.length){demoOn=false;document.getElementById('demo').classList.remove('on');return;}
+  const [semi,dur]=TUNE[demoI]; initAudio();if(actx&&actx.state==='suspended')actx.resume(); play(semi);
+  const w=whites.find(x=>x.semi===semi);if(w)w.lit=1;else{const b=blacks.find(x=>x.semi===semi);if(b)b.lit=1;}
+  demoAt+=dur*0.5; demoI++; }
+document.getElementById('demo').onclick=e=>{ if(demoOn){demoOn=false;e.target.classList.remove('on');return;} demoOn=true;demoI=0;demoAt=0;e.target.classList.add('on'); initAudio();if(actx&&actx.state==='suspended')actx.resume(); hideHint(); };
 requestAnimationFrame(frame);
 })();
 </script>

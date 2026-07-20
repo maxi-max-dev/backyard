@@ -18,8 +18,8 @@
 </head>
 <body>
 <canvas id="cv"></canvas>
-<div class="title"><b>雪花球</b><span>晃一晃，让雪飞起来</span></div>
-<div class="hint" id="hint">❄️ 点一下 / 摇一摇玻璃球</div>
+<div class="title"><b>雪花球</b><span>拨一拨，让雪飞起来</span></div>
+<div class="hint" id="hint">❄️ 点一下 / 按住拖一拖</div>
 <script>
 (()=>{
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
@@ -30,13 +30,13 @@ function resize(){
   H=window.innerHeight||document.documentElement.clientHeight||600;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  cx=W/2; cy=H*0.46; R=Math.min(W,H)*0.36;
-  snow=[]; for(let i=0;i<220;i++){ const a=Math.random()*6.28,d=Math.random()*R*0.95; snow.push({x:cx+Math.cos(a)*d,y:cy+Math.sin(a)*d,vx:0,vy:10+Math.random()*20,r:1+Math.random()*2.6,dp:Math.random()}); }
+  cx=W/2; cy=H*0.46; R=Math.min(W*0.46,H*0.36);
+  snow=[]; for(let i=0;i<220;i++){ const a=Math.random()*6.28,d=Math.random()*R*0.95; snow.push({x:cx+Math.cos(a)*d,y:cy+Math.sin(a)*d,vx:0,vy:10+Math.random()*20,r:1+Math.random()*2.6,dp:Math.random(),perm:i<26,rest:false}); }
 }
 window.addEventListener('resize',resize); resize();
 
 let t=0, shake=0;
-function stir(power){ shake=1; for(const s of snow){ s.vx+=(Math.random()-.5)*260*power; s.vy-=(60+Math.random()*180)*power; } }
+function stir(power){ shake=1; for(const s of snow){ s.rest=false; s.vx+=(Math.random()-.5)*420*power; s.vy-=(30+Math.random()*110)*power; } }
 function step(dt){
   shake*=Math.pow(0.4,dt);
   for(const s of snow){
@@ -46,8 +46,12 @@ function step(dt){
     // confine to globe; settle near bottom
     const dx=s.x-cx,dy=s.y-cy,d=Math.hypot(dx,dy), lim=R-3-s.r;
     if(d>lim){ const nx=dx/d,ny=dy/d; s.x=cx+nx*lim; s.y=cy+ny*lim; const vn=s.vx*nx+s.vy*ny; s.vx-=vn*nx*1.3; s.vy-=vn*ny*1.3; s.vx*=0.5;s.vy*=0.5; }
-    // rest on the settled floor line
-    const floorY=cy+R*0.62; if(s.y>floorY && Math.abs(s.x-cx)<R*0.9 && shake<0.15){ s.y=floorY-Math.random()*3; s.vy=0; s.vx*=0.6; }
+    // resident flakes never settle: they drift forever so the globe is never a dead picture
+    if(s.perm){ s.vy=Math.min(s.vy,26+s.dp*18);
+      if(s.y>cy+R*0.72){ s.y=cy-R*0.92; s.x=cx+(Math.random()-.5)*R*1.5; s.vx=0; s.vy=10+Math.random()*14; }
+      continue; }
+    // rest on the settled floor line (drawn behind the cabin/trees so it never streaks across them)
+    const floorY=cy+R*0.7; if(s.y>floorY && Math.abs(s.x-cx)<R*0.9 && shake<0.15){ s.y=floorY-Math.random()*3; s.vy=0; s.vx*=0.6; s.rest=true; }
   }
 }
 function draw(){
@@ -63,6 +67,8 @@ function draw(){
   ctx.fillStyle='rgba(255,250,220,.85)';ctx.beginPath();ctx.arc(cx+R*0.5,cy-R*0.5,R*0.1,0,6.28);ctx.fill();
   // snow ground
   ctx.fillStyle='#eef4fb';ctx.beginPath();ctx.ellipse(cx,cy+R*0.9,R*1.1,R*0.6,0,Math.PI,0);ctx.fill();ctx.fillRect(cx-R,cy+R*0.62,R*2,R);
+  // settled snow goes down FIRST so the scenery covers it
+  for(const s of snow){ if(!s.rest)continue; ctx.fillStyle='rgba(255,255,255,'+(0.5+s.dp*0.5)+')';ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,6.28);ctx.fill(); }
   // pine trees
   function pine(x,y,s){ ctx.fillStyle='#2e6b45'; for(let k=0;k<3;k++){ const yy=y-k*s*0.5; ctx.beginPath();ctx.moveTo(x,yy-s*0.9);ctx.lineTo(x-s*(0.6-k*0.12),yy);ctx.lineTo(x+s*(0.6-k*0.12),yy);ctx.closePath();ctx.fill(); }
     ctx.fillStyle='#5a3a22';ctx.fillRect(x-2,y,4,s*0.3); ctx.fillStyle='rgba(255,255,255,.85)';for(let k=0;k<3;k++){const yy=y-k*s*0.5;ctx.beginPath();ctx.moveTo(x,yy-s*0.9);ctx.lineTo(x-s*(0.6-k*0.12)*0.5,yy-s*0.45);ctx.lineTo(x,yy-s*0.5);ctx.closePath();ctx.fill();} }
@@ -78,7 +84,7 @@ function draw(){
   // window glow spill
   ctx.save();ctx.globalCompositeOperation='lighter';const spill=ctx.createRadialGradient(hx,hy+hh*0.45,2,hx,hy+hh*0.45,R*0.5);spill.addColorStop(0,'rgba(255,200,90,0.25)');spill.addColorStop(1,'rgba(255,200,90,0)');ctx.fillStyle=spill;ctx.fillRect(cx-R,cy-R,R*2,R*2);ctx.restore();
   // snow particles
-  for(const s of snow){ ctx.fillStyle='rgba(255,255,255,'+(0.5+s.dp*0.5)+')';ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,6.28);ctx.fill(); }
+  for(const s of snow){ if(s.rest)continue; ctx.fillStyle='rgba(255,255,255,'+(0.5+s.dp*0.5)+')';ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,6.28);ctx.fill(); }
   ctx.restore();
   // glass sheen
   ctx.save();ctx.beginPath();ctx.arc(cx,cy,R,0,6.28);ctx.clip();

@@ -13,17 +13,21 @@
   .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
   .title b{font-size:19px;font-weight:800;letter-spacing:3px}
   .title span{display:block;font-size:12px;opacity:.55;margin-top:3px;font-weight:600}
-  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
+  .dock{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;pointer-events:none;
+    display:flex;flex-direction:column;align-items:center;gap:7px;max-width:96vw}
+  .bar{pointer-events:auto;display:flex;gap:8px;
     background:rgba(30,20,14,.5);border:1px solid rgba(255,180,100,.22);padding:8px 12px;border-radius:15px;backdrop-filter:blur(10px)}
   .bar button{font:inherit;font-weight:700;font-size:13px;color:#ffd9a8;border:1px solid rgba(255,190,120,.25);background:rgba(255,255,255,.05);padding:8px 13px;border-radius:11px;cursor:pointer}
-  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
+  .hint{font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
 </style>
 </head>
 <body>
 <canvas id="cv"></canvas>
 <div class="title"><b>篝火</b><span>戳一下火会窜高，划一划扇风</span></div>
-<div class="hint" id="hint">🔥 戳戳篝火，或划一划扇风</div>
-<div class="bar"><button id="log">🪵 添柴</button></div>
+<div class="dock">
+  <div class="hint" id="hint">🔥 戳戳篝火，或划一划扇风</div>
+  <div class="bar"><button id="log">🪵 添柴</button></div>
+</div>
 <script>
 (()=>{
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
@@ -46,7 +50,7 @@ let nb=null;
 function crackle(){ if(!actx||!nb)return;const t=actx.currentTime;const s=actx.createBufferSource();s.buffer=nb;const f=actx.createBiquadFilter();f.type='bandpass';f.frequency.value=1200+Math.random()*1500;const g=actx.createGain();g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.25,t+0.005);g.gain.exponentialRampToValueAtTime(0.0001,t+0.08);s.connect(f);f.connect(g);g.connect(master);s.start(t);s.stop(t+0.1);}
 
 let parts=[], embers=[], wind=0, fireSize=1, t=0, crackT=0;
-function spawn(n,boost){ for(let i=0;i<n;i++){ const sx=cx+(Math.random()-.5)*34*fireSize; parts.push({x:sx,y:groundY-4,vx:(Math.random()-.5)*20,vy:-(70+Math.random()*70)*(boost||1),life:1,mx:sx,r:10+Math.random()*10}); }
+function spawn(n,boost){ for(let i=0;i<n;i++){ const sx=cx+(Math.random()-.5)*34*fireSize; parts.push({x:sx,y:groundY-4,vx:(Math.random()-.5)*20+wind*90,vy:-(70+Math.random()*70)*(boost||1),life:1,mx:sx,r:10+Math.random()*10}); }
   if(parts.length>420)parts.splice(0,60); }
 function ember(){ embers.push({x:cx+(Math.random()-.5)*26,y:groundY-10,vx:(Math.random()-.5)*30,vy:-(90+Math.random()*80),life:1,ph:Math.random()*6.28}); if(embers.length>90)embers.shift(); }
 function seed(){ parts=[];embers=[]; }
@@ -54,14 +58,14 @@ resize(); seed();
 
 let pointer={x:0,y:0,on:false,px:0};
 function step(dt){
-  wind*=Math.pow(0.2,dt);
+  wind*=Math.pow(0.5,dt);
   spawn(Math.round(6*fireSize), 1);
   if(Math.random()<0.4)ember();
   crackT-=dt; if(crackT<=0){ crackT=0.2+Math.random()*0.6; crackle(); }
   fireSize+=(1-fireSize)*Math.min(1,dt*0.6);
   for(let i=parts.length-1;i>=0;i--){ const p=parts[i]; p.life-=dt*(1.1+Math.random()*0.3);
     p.vy-=40*dt; // buoyancy
-    p.vx+=(Math.sin((groundY-p.y)*0.04+t*3)*30 + wind*140)*dt; p.vx*=Math.pow(0.4,dt);
+    p.vx+=(Math.sin((groundY-p.y)*0.04+t*3)*30 + wind*400)*dt; p.vx*=Math.pow(0.4,dt);
     p.x+=p.vx*dt; p.y+=p.vy*dt; if(p.life<=0)parts.splice(i,1); }
   for(let i=embers.length-1;i>=0;i--){ const e=embers[i]; e.life-=dt*0.5; e.vy-=30*dt; e.vx+=(Math.sin(e.ph+t*2)*40+wind*160)*dt; e.x+=e.vx*dt; e.y+=e.vy*dt; if(e.life<=0||e.y<0)embers.splice(i,1); }
 }

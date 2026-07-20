@@ -18,7 +18,7 @@
   .bar button{font:inherit;font-weight:700;font-size:13px;color:#dfe4ff;border:1px solid rgba(160,160,255,.25);
     background:rgba(255,255,255,.05);padding:8px 13px;border-radius:11px;cursor:pointer}
   .bar button.on{background:linear-gradient(90deg,#ff5a8a,#ffa94d);border-color:transparent;color:#fff}
-  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
+  .hint{position:fixed;left:50%;bottom:88px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
     opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
 </style>
 </head>
@@ -66,7 +66,7 @@ function launch(tx,ty){
   tx=tx==null? W*(0.2+Math.random()*0.6):tx;
   ty=ty==null? H*(0.12+Math.random()*0.35):ty;
   const sx=W*0.5+(tx-W*0.5)*0.2 + (Math.random()-.5)*40;
-  const dist=H-ty; const vy=-Math.sqrt(2*900*dist)*0.62;
+  const dist=H-ty; const vy=-Math.sqrt(2*900*dist); // apex lands exactly on ty
   rockets.push({x:sx,y:H,vx:(tx-sx)/((-vy)/900),vy,ty,hue:(Math.random()*360)|0,type:(Math.random()*3)|0});
   whoosh();
 }
@@ -123,7 +123,7 @@ function frame(now){ const dt=Math.min((now-last)/1000,0.04); last=now; t+=dt;
   update(dt); draw(); requestAnimationFrame(frame); }
 
 // ---- input ----
-function tap(x,y){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); if(y>H*0.85)return; launch(x,y); hideHint(); }
+function tap(x,y){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); hideHint(); launch(x,Math.min(y,H*0.8)); }
 cv.addEventListener('pointerdown',e=>{e.preventDefault();tap(e.clientX,e.clientY);});
 let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
 document.getElementById('auto').onclick=e=>{AUTO=!AUTO;e.target.classList.toggle('on',AUTO);};

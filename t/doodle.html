@@ -24,9 +24,12 @@
   .bar button:active{transform:translateY(1px);box-shadow:0 1px 0 rgba(150,110,70,.18)}
   .bar button.on{background:linear-gradient(90deg,#4dc9ff,#4d8bff);color:#fff;box-shadow:0 2px 0 rgba(40,90,160,.3)}
   .count{position:fixed;top:18px;right:20px;z-index:5;font-weight:800;font-size:14px;opacity:.5;pointer-events:none}
-  .hint{position:fixed;left:50%;bottom:66px;transform:translateX(-50%);z-index:4;
+  .hint{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);z-index:4;
     font-size:13px;font-weight:600;opacity:.55;pointer-events:none;transition:opacity .6s;white-space:nowrap;
     text-shadow:0 1px 0 rgba(255,255,255,.6)}
+  .bar button i{font-style:normal}
+  /* narrow screens: emoji-only buttons so the bar stays one row */
+  @media (max-width:520px){ .bar{flex-wrap:nowrap} .bar button{padding:9px 11px;font-size:16px} .bar button i{display:none} }
 </style>
 </head>
 <body>
@@ -35,11 +38,11 @@
 <div class="count" id="count"></div>
 <div class="hint" id="hint">✎ 画一条斜线，再点上面 ✎</div>
 <div class="bar">
-  <button id="tap" class="on">💧 水龙头</button>
-  <button id="rain">🌈 一把珠</button>
-  <button id="clearB">🧹 清珠</button>
-  <button id="clearL">🗑️ 清线</button>
-  <button id="reset">↺ 全清</button>
+  <button id="tap" class="on">💧<i> 水龙头</i></button>
+  <button id="rain">🌈<i> 一把珠</i></button>
+  <button id="clearB">🧹<i> 清珠</i></button>
+  <button id="clearL">🗑️<i> 清线</i></button>
+  <button id="reset">↺<i> 全清</i></button>
 </div>
 <script>
 (()=>{
@@ -58,7 +61,15 @@ const COLORS=['#ff6b8a','#ffb454','#ffd93d','#4fd18b','#4dc9ff','#9b7bff','#ff8f
 const G=1700, REST=0.34, FRICT=0.985, WREST=0.36, SUB=4;
 const R_MIN=8, R_MAX=15;
 
-let balls=[], segs=[], strokes=[]; // strokes = array of point arrays for smooth drawing
+let balls=[], segs=[], strokes=[]; // every seg carries the id of the stroke it belongs to
+let sid=0, curId=0;
+// evict whole strokes (ink + its collision segs together) so a visible line is never a ghost
+function trim(){
+  while(segs.length>1400 || strokes.length>200){
+    const id = segs.length>1400 ? segs[0].sid : strokes[0].id;
+    segs=segs.filter(s=>s.sid!==id); strokes=strokes.filter(s=>s.id!==id);
+  }
+}
 let faucet=true, faucetT=0;
 let idc=0;
 
@@ -68,26 +79,26 @@ function addBall(x,y,r){
   if(balls.length>170) balls.shift();
   count();
 }
-function count(){document.getElementById('count').textContent=balls.length+' 颗';}
+function count(){document.getElementById('count').textContent=balls.length+' 颗'+(balls.length>=170?'（满）':'');}
 
 // ---- input ----
 let down=false, moved=false, dx0=0,dy0=0, curStroke=null, lastPt=null;
-function onDown(x,y){ down=true; moved=false; dx0=x; dy0=y; curStroke=[[x,y]]; lastPt=[x,y]; }
+function onDown(x,y){ down=true; moved=false; dx0=x; dy0=y; curStroke=[[x,y]]; curId=++sid; lastPt=[x,y]; }
 function onMove(x,y){
   if(!down)return;
   if(Math.hypot(x-dx0,y-dy0)>6) moved=true;
   const d=Math.hypot(x-lastPt[0],y-lastPt[1]);
   if(d>7){
-    segs.push({x1:lastPt[0],y1:lastPt[1],x2:x,y2:y});
+    segs.push({x1:lastPt[0],y1:lastPt[1],x2:x,y2:y,sid:curId});
     curStroke.push([x,y]);
     lastPt=[x,y];
-    if(segs.length>1400) segs.shift();
+    trim();
   }
 }
 function onUp(x,y){
   if(down){
     if(!moved){ addBall(dx0,dy0-4); }
-    else if(curStroke && curStroke.length>1){ strokes.push(curStroke); if(strokes.length>200)strokes.shift(); }
+    else if(curStroke && curStroke.length>1){ strokes.push({id:curId,pts:curStroke}); trim(); }
     hideHint();
   }
   down=false; curStroke=null;
@@ -169,7 +180,7 @@ function draw(){
   // ink
   ctx.strokeStyle='#40372f'; ctx.lineWidth=6; ctx.lineCap='round'; ctx.lineJoin='round';
   ctx.shadowColor='rgba(90,60,30,.22)'; ctx.shadowBlur=5; ctx.shadowOffsetY=2;
-  for(const st of strokes) drawInk(st);
+  for(const st of strokes) drawInk(st.pts);
   if(curStroke) drawInk(curStroke);
   ctx.shadowColor='transparent'; ctx.shadowBlur=0; ctx.shadowOffsetY=0;
   // balls
@@ -192,7 +203,7 @@ function frame(now){ const dt=(now-last)/1000; last=now; step(dt||0.016); draw()
 
 // ---- controls ----
 let hintGone=false; function hideHint(){ if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0; }
-document.getElementById('tap').onclick=e=>{faucet=!faucet;e.target.classList.toggle('on',faucet);hideHint();};
+document.getElementById('tap').onclick=e=>{faucet=!faucet;e.currentTarget.classList.toggle('on',faucet);hideHint();};
 document.getElementById('rain').onclick=()=>{for(let i=0;i<24;i++) setTimeout(()=>addBall(W*(0.15+Math.random()*0.7),-10),i*40);hideHint();};
 document.getElementById('clearB').onclick=()=>{balls=[];count();};
 document.getElementById('clearL').onclick=()=>{segs=[];strokes=[];};
@@ -200,11 +211,11 @@ document.getElementById('reset').onclick=()=>{balls=[];segs=[];strokes=[];count(
 
 // starter ramp so it's alive on load
 function seed(){
-  const pts=[[W*0.2,H*0.35],[W*0.5,H*0.5],[W*0.78,H*0.62]];
-  for(let i=0;i<pts.length-1;i++) segs.push({x1:pts[i][0],y1:pts[i][1],x2:pts[i+1][0],y2:pts[i+1][1]});
-  strokes.push(pts);
-  const p2=[[W*0.82,H*0.72],[W*0.45,H*0.8]];
-  segs.push({x1:p2[0][0],y1:p2[0][1],x2:p2[1][0],y2:p2[1][1]}); strokes.push(p2);
+  const pts=[[W*0.2,H*0.35],[W*0.5,H*0.5],[W*0.78,H*0.62]]; const i1=++sid;
+  for(let i=0;i<pts.length-1;i++) segs.push({x1:pts[i][0],y1:pts[i][1],x2:pts[i+1][0],y2:pts[i+1][1],sid:i1});
+  strokes.push({id:i1,pts});
+  const p2=[[W*0.82,H*0.72],[W*0.45,H*0.8]]; const i2=++sid;
+  segs.push({x1:p2[0][0],y1:p2[0][1],x2:p2[1][0],y2:p2[1][1],sid:i2}); strokes.push({id:i2,pts:p2});
   count();
 }
 seed();

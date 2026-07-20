@@ -10,10 +10,13 @@
     font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
     color:#e9e6ff;touch-action:none;user-select:none}
   #cv{display:block;position:fixed;inset:0;background:#04040a}
-  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none;mix-blend-mode:difference}
-  .title b{font-size:19px;font-weight:800;letter-spacing:4px}
-  .title span{display:block;font-size:12px;opacity:.7;margin-top:3px;font-weight:600;letter-spacing:1px}
-  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none;
+    text-shadow:0 1px 8px rgba(0,0,0,.85),0 0 24px rgba(0,0,0,.7)}
+  .title b{font-size:25px;font-weight:800;letter-spacing:4px}
+  .title span{display:block;font-size:12px;opacity:.85;margin-top:4px;font-weight:600;letter-spacing:1px}
+  .dock{position:fixed;left:0;right:0;bottom:16px;z-index:6;display:flex;flex-direction:column;
+    align-items:center;gap:10px;pointer-events:none}
+  .bar{pointer-events:auto;
     display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:96vw;
     background:rgba(18,16,34,.55);border:1px solid rgba(150,130,255,.22);
     padding:8px 12px;border-radius:16px;backdrop-filter:blur(12px)}
@@ -23,18 +26,20 @@
   .bar button:hover{background:rgba(160,140,255,.2)}
   .bar button:active{transform:translateY(1px)}
   .bar button.on{background:linear-gradient(90deg,#6a5cff,#c05cff);border-color:transparent}
-  .hint{position:fixed;left:50%;bottom:66px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
-    opacity:.55;pointer-events:none;transition:opacity .6s;white-space:nowrap;mix-blend-mode:difference}
+  .hint{font-size:13px;font-weight:600;opacity:.8;transition:opacity .6s;white-space:nowrap;
+    text-shadow:0 1px 8px rgba(0,0,0,.9)}
 </style>
 </head>
 <body>
 <canvas id="cv"></canvas>
 <div class="title"><b>墨</b><span>手指划过水面，看烟墨翻卷</span></div>
-<div class="hint" id="hint">～ 在水里搅一搅 ～</div>
-<div class="bar">
-  <button id="auto" class="on">🌀 自动</button>
-  <button id="rainbow" class="on">🌈 幻彩</button>
-  <button id="clear">💧 清水</button>
+<div class="dock">
+  <div class="hint" id="hint">～ 在水里搅一搅 ～</div>
+  <div class="bar">
+    <button id="auto" class="on">🌀 自动</button>
+    <button id="rainbow" class="on">🌈 幻彩</button>
+    <button id="clear">💧 清水</button>
+  </div>
 </div>
 <script>
 (()=>{
@@ -45,7 +50,7 @@ let gw=0,gh=0,N=0,W2=0;
 let u,v,u0,v0,dens,dens0,hux,hux0; // hue stored as unit vectors (cos,sin) to advect across the 0/360 wrap
 let oc,octx,img;
 const IX=(i,j)=>i+W2*j;
-const ITER=10, DT=0.10, FADE=0.990, VFADE=0.995;
+const ITER=10, DT=0.10, FADE=0.990, VFADE=0.995, DMAX=25; // DMAX: dye saturates past this, capping it keeps the water readable
 
 function alloc(){
   gw=104; gh=Math.max(40,Math.round(gw*H/Math.max(W,1)));
@@ -112,7 +117,7 @@ function project(uu,vv,p,div){
   }
   set_bnd(1,uu); set_bnd(2,vv);
 }
-function step(){
+function step(dt){
   // velocity
   project(u,v,u0,v0);
   u0.set(u); v0.set(v);
@@ -122,23 +127,24 @@ function step(){
   dens0.set(dens); advect(0,dens,dens0,u,v,DT);
   hux0.set(hux); advect(0,hux,hux0,u,v,DT);
   huy0.set(huy); advect(0,huy,huy0,u,v,DT);
-  // fades
-  for(let k=0;k<dens.length;k++){ dens[k]*=FADE; u[k]*=VFADE; v[k]*=VFADE; }
+  // fades (per second, not per frame — same speed on 30/60/120Hz screens)
+  const fd=Math.pow(FADE,dt*60), vfd=Math.pow(VFADE,dt*60);
+  for(let k=0;k<dens.length;k++){ dens[k]*=fd; u[k]*=vfd; v[k]*=vfd; }
   // light smoothing to kill checkerboard speckle in the dye
   dens0.set(dens);
   for(let j=1;j<=gh;j++)for(let i=1;i<=gw;i++){
-    dens[IX(i,j)]=dens0[IX(i,j)]*0.8+(dens0[IX(i-1,j)]+dens0[IX(i+1,j)]+dens0[IX(i,j-1)]+dens0[IX(i,j+1)])*0.05;
+    dens[IX(i,j)]=dens0[IX(i,j)]*0.6+(dens0[IX(i-1,j)]+dens0[IX(i+1,j)]+dens0[IX(i,j-1)]+dens0[IX(i,j+1)])*0.1;
   }
 }
 
-function inject(px,py,dx,dy,h){
+function inject(px,py,dx,dy,h,amt){ amt=amt||110;
   const gi=Math.max(1,Math.min(gw, Math.round(px/W*gw)));
   const gj=Math.max(1,Math.min(gh, Math.round(py/H*gh)));
   const ca=Math.cos(h*Math.PI/180), sa=Math.sin(h*Math.PI/180);
   for(let oj=-1;oj<=1;oj++)for(let oi=-1;oi<=1;oi++){
     const i=gi+oi,j=gj+oj; if(i<1||i>gw||j<1||j>gh)continue;
     const w=(oi||oj)?0.5:1;
-    dens[IX(i,j)]+=110*w;
+    dens[IX(i,j)]=Math.min(dens[IX(i,j)]+amt*w, DMAX);
     hux[IX(i,j)]=ca; huy[IX(i,j)]=sa;
     u[IX(i,j)]+=dx*1.4*w; v[IX(i,j)]+=dy*1.4*w;
   }
@@ -181,7 +187,7 @@ function autoDrive(){
   const a=t*0.9, r=Math.min(W,H)*(0.18+0.16*Math.sin(t*0.5));
   const x=W/2+Math.cos(a)*r*1.4, y=H/2+Math.sin(a*1.3)*r;
   if(apx==null){apx=x;apy=y;}
-  inject(x,y,(x-apx),(y-apy), hue);
+  inject(x,y,(x-apx),(y-apy), hue, 35); // a thin ribbon of ink, not a flood
   apx=x;apy=y;
 }
 
@@ -190,7 +196,7 @@ function frame(now){
   const dt=Math.min((now-last)/1000,0.05); last=now; t+=dt;
   hue=(hue+dt*40)%360;
   if(AUTO && (t-lastInput)>1.2 && !down) autoDrive(); else apx=null;
-  step(); render();
+  step(dt); render();
   requestAnimationFrame(frame);
 }
 

@@ -13,22 +13,26 @@
   .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
   .title b{font-size:19px;font-weight:800;letter-spacing:2px}
   .title span{display:block;font-size:12px;opacity:.55;margin-top:3px;font-weight:600}
-  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;
+  .dock{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;pointer-events:none;
+    display:flex;flex-direction:column;align-items:center;gap:7px;max-width:96vw}
+  .bar{pointer-events:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;
     background:rgba(18,18,40,.5);border:1px solid rgba(150,150,255,.2);padding:8px 12px;border-radius:15px;backdrop-filter:blur(10px)}
   .bar button{font:inherit;font-weight:700;font-size:13px;color:#dde0ff;border:1px solid rgba(160,160,255,.25);background:rgba(255,255,255,.05);padding:8px 13px;border-radius:11px;cursor:pointer}
   .bar button.on{background:linear-gradient(90deg,#8a6cff,#ff6ad0);border-color:transparent;color:#fff}
-  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
+  .hint{font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
 </style>
 </head>
 <body>
 <canvas id="cv"></canvas>
 <div class="title"><b>混沌摆</b><span>抬起来松手，看它们各自疯</span></div>
-<div class="hint" id="hint">✦ 拖起摆锤，松手释放 ✦</div>
-<div class="bar">
-  <button id="one">① 单摆</button>
-  <button id="many" class="on">🌈 一排</button>
-  <button id="clear">🧹 清痕</button>
-  <button id="reset">↻ 重摆</button>
+<div class="dock">
+  <div class="hint" id="hint">✦ 拖起摆锤，松手释放 ✦</div>
+  <div class="bar">
+    <button id="one">① 单摆</button>
+    <button id="many" class="on">🌈 一排</button>
+    <button id="clear">🧹 清痕</button>
+    <button id="reset">↻ 重摆</button>
+  </div>
 </div>
 <script>
 (()=>{
@@ -40,7 +44,11 @@ function resize(){
   H=window.innerHeight||document.documentElement.clientHeight||600;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  pivotX=W/2; pivotY=H*0.34; const s=Math.min(W,H); L1=s*0.20; L2=s*0.20;
+  // centre the swing in whatever vertical space is left between title and dock
+  const dock=document.querySelector('.dock');
+  const top=76, bot=H-(dock?dock.offsetHeight:60)-30;
+  pivotX=W/2; pivotY=(top+bot)/2;
+  const R=Math.min((bot-top)/2, W*0.46); L1=R/2; L2=R/2;
   ctx.fillStyle='#060610'; ctx.fillRect(0,0,W,H);
 }
 window.addEventListener('resize',resize); resize();
@@ -108,8 +116,13 @@ function setFromPointer(x,y){ const ang=Math.atan2(x-pivotX, y-pivotY); const ba
   for(let i=0;i<pends.length;i++){ pends[i].t1=ang; pends[i].t2=ang+i*base; pends[i].w1=0;pends[i].w2=0; pends[i].trail=[]; } }
 cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);down=true;held=true;setFromPointer(e.clientX,e.clientY);hideHint();});
 cv.addEventListener('pointermove',e=>{if(down)setFromPointer(e.clientX,e.clientY);});
-cv.addEventListener('pointerup',()=>{down=false;held=false;});
-cv.addEventListener('pointercancel',()=>{down=false;held=false;});
+// shared flick on release: same kick for every pendulum, so they still start
+// near-identical and diverge on their own — but never die at the bottom.
+function release(){ down=false; held=false;
+  const s=Math.random()<0.5?-1:1, k1=s*(1.1+Math.random()*0.7), k2=s*(1.1+Math.random()*0.7);
+  for(const p of pends){ p.w1+=k1; p.w2+=k2; } }
+cv.addEventListener('pointerup',release);
+cv.addEventListener('pointercancel',release);
 
 let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
 document.getElementById('one').onclick=e=>{mode='one';document.getElementById('many').classList.remove('on');e.target.classList.add('on');reset();};

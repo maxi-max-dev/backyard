@@ -16,18 +16,20 @@
   .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
     background:rgba(10,40,28,.5);border:1px solid rgba(140,230,170,.25);padding:8px 12px;border-radius:15px;backdrop-filter:blur(8px)}
   .bar button{font:inherit;font-weight:800;font-size:15px;color:#0d2a1e;border:none;background:linear-gradient(90deg,#8fe6a8,#4dcf88);padding:10px 24px;border-radius:11px;cursor:pointer;box-shadow:0 3px 0 rgba(30,120,70,.5)}
-  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
+  .hint{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
 </style>
 </head>
 <body>
 <canvas id="cv"></canvas>
-<div class="title"><b>骰子</b><span>点一下 / 摇一摇掷骰子</span></div>
+<div class="title"><b>骰子</b><span>点桌面掷骰子</span></div>
 <div class="hint" id="hint">🎲 点桌面掷骰子</div>
 <div class="bar"><button id="roll">🎲 掷骰子</button></div>
 <script>
 (()=>{
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 let W=0,H=0,dpr=1,tx=0,ty=0,tw=0,th=0;
+const SZ=64;
+let dice=[], t=0, result=0, msg='', rolled=false;
 function resize(){
   dpr=Math.min(window.devicePixelRatio||1,2);
   W=window.innerWidth||document.documentElement.clientWidth||800;
@@ -35,6 +37,9 @@ function resize(){
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
   tw=Math.min(W*0.86,560); th=Math.min(H*0.58,420); tx=(W-tw)/2; ty=(H-th)/2-6;
+  // keep the dice on the (re-centred) table instead of stranding them off-canvas
+  const m=SZ*0.72;
+  for(const d of dice){ d.x=Math.max(tx+m,Math.min(tx+tw-m,d.x)); d.y=Math.max(ty+m,Math.min(ty+th-m,d.y)); }
 }
 window.addEventListener('resize',resize); resize();
 
@@ -44,14 +49,12 @@ function initAudio(){ if(actx)return; try{actx=new(window.AudioContext||window.w
 let nb=null;
 function clack(){ if(!actx)return;const t=actx.currentTime;const s=actx.createBufferSource();s.buffer=nb;const f=actx.createBiquadFilter();f.type='bandpass';f.frequency.value=1800+Math.random()*1200;const g=actx.createGain();g.gain.setValueAtTime(0.3,t);g.gain.exponentialRampToValueAtTime(0.0001,t+0.06);s.connect(f);f.connect(g);g.connect(master);s.start(t);s.stop(t+0.07); }
 
-const SZ=64;
-let dice=[], t=0, result=0, msg='';
 function reset(){ dice=[ {x:0,y:0,vx:0,vy:0,ang:0,va:0,face:1,rolling:false}, {x:0,y:0,vx:0,vy:0,ang:0,va:0,face:1,rolling:false} ];
   place(); }
 function place(){ dice[0].x=tx+tw*0.38; dice[0].y=ty+th*0.5; dice[1].x=tx+tw*0.62; dice[1].y=ty+th*0.5; }
 resize(); reset(); place();
 
-function roll(){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); if(dice.some(d=>d.rolling))return; result=0;msg='';
+function roll(){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); if(dice.some(d=>d.rolling))return; result=0;msg='';rolled=true;
   for(const d of dice){ d.rolling=true; d.rollT=0; d.dur=0.9+Math.random()*0.4; const a=Math.random()*6.28; d.vx=Math.cos(a)*(400+Math.random()*300); d.vy=Math.sin(a)*(400+Math.random()*300); d.va=(Math.random()-.5)*24; d.faceT=0; d.face=1+((Math.random()*6)|0); } hideHint(); }
 function step(dt){
   let any=false;
@@ -66,7 +69,7 @@ function step(dt){
   // dice-dice separation
   const a=dice[0],b=dice[1]; const dx=b.x-a.x,dy=b.y-a.y,dd=Math.hypot(dx,dy),min=SZ*1.1;
   if(dd<min&&dd>0){ const nx=dx/dd,ny=dy/dd,ov=(min-dd)/2; a.x-=nx*ov;a.y-=ny*ov;b.x+=nx*ov;b.y+=ny*ov; }
-  if(!any && !result){ result=dice[0].face+dice[1].face; msg=dice[0].face===dice[1].face?('豹子！'+dice[0].face+dice[0].face):('点数 '+result); }
+  if(rolled && !any && !result){ result=dice[0].face+dice[1].face; msg=dice[0].face===dice[1].face?('豹子！'+dice[0].face+dice[0].face):('点数 '+result); }
 }
 const PIPS={1:[[1,1]],2:[[0,0],[2,2]],3:[[0,0],[1,1],[2,2]],4:[[0,0],[2,0],[0,2],[2,2]],5:[[0,0],[2,0],[1,1],[0,2],[2,2]],6:[[0,0],[2,0],[0,1],[2,1],[0,2],[2,2]]};
 function die(d){
@@ -76,7 +79,7 @@ function die(d){
   ctx.fillStyle=g;ctx.beginPath();ctx.roundRect?ctx.roundRect(-SZ/2,-SZ/2,SZ,SZ,14):ctx.rect(-SZ/2,-SZ/2,SZ,SZ);ctx.fill();
   ctx.shadowBlur=0;ctx.shadowOffsetY=0;
   const pip=SZ*0.14, gap=SZ*0.28;
-  const doubles = !dice[0].rolling && !dice[1].rolling && dice[0].face===dice[1].face;
+  const doubles = rolled && !dice[0].rolling && !dice[1].rolling && dice[0].face===dice[1].face;
   ctx.fillStyle=doubles?'#e0333a':'#2a2a33';
   for(const [px,py] of PIPS[d.face]){ ctx.beginPath();ctx.arc((px-1)*gap,(py-1)*gap,pip,0,6.28);ctx.fill(); }
   ctx.restore();

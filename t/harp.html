@@ -21,7 +21,7 @@
     padding:9px 14px;border-radius:11px;cursor:pointer;box-shadow:0 2px 0 rgba(150,110,70,.16);transition:transform .07s}
   .bar button:active{transform:translateY(1px)}
   .bar button.on{background:linear-gradient(90deg,#ffa94d,#ff6ba0);color:#fff;box-shadow:0 2px 0 rgba(180,90,90,.28)}
-  .hint{position:fixed;left:50%;bottom:66px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
+  .hint{position:fixed;left:50%;bottom:82px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
     opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
 </style>
 </head>
@@ -93,7 +93,7 @@ function draw(){
     ctx.beginPath();
     const steps=18;
     for(let k=0;k<=steps;k++){
-      const y=H*0.06 + (H*0.82)*(k/steps);
+      const y=H*0.12 + (H*0.76)*(k/steps);
       const env=Math.sin(Math.PI*(k/steps));
       const dx=a*env*Math.cos(age*s.wf*6.28);
       const xx=s.x+dx;
@@ -107,7 +107,7 @@ function draw(){
     ctx.shadowBlur=0;
     // anchor dots
     ctx.fillStyle='hsl('+s.hue+',40%,45%)';
-    ctx.beginPath(); ctx.arc(s.x,H*0.06,3,0,6.28); ctx.fill();
+    ctx.beginPath(); ctx.arc(s.x,H*0.12,3,0,6.28); ctx.fill();
     ctx.beginPath(); ctx.arc(s.x,H*0.88,3,0,6.28); ctx.fill();
     // pluck halo at middle
     if(bright>0.05){
@@ -127,7 +127,11 @@ function crossPluck(x){
   }
   prevX=x;
 }
-function onDown(x,y){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); down=true; prevX=null; crossPluck(x); hideHint(); }
+function wakeAudio(){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); }
+function onDown(x,y){ wakeAudio(); down=true;
+  let s=null,bd=1e9; for(const g of strings){const d=Math.abs(g.x-x); if(d<bd){bd=d;s=g;}}
+  if(s) pluck(s,16+Math.random()*8);   // 点一下也出声
+  prevX=x; hideHint(); }
 function onMove(x,y){ if(down) crossPluck(x); }
 function onUp(){ down=false; prevX=null; }
 cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);onDown(e.clientX,e.clientY);});
@@ -144,9 +148,13 @@ function frame(tms){
 }
 
 let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
-document.getElementById('auto').onclick=e=>{AUTO=!AUTO;e.target.classList.toggle('on',AUTO);};
-document.getElementById('mute').onclick=e=>{muted=!muted;e.target.textContent=muted?'🔇 静音':'🔊 有声';};
+document.getElementById('auto').onclick=e=>{wakeAudio();AUTO=!AUTO;e.target.classList.toggle('on',AUTO);};
+document.getElementById('mute').onclick=e=>{wakeAudio();muted=!muted;e.target.textContent=muted?'🔇 静音':'🔊 有声';};
 
+// 引导文字自动停在按钮条上方（手机上按钮会换行变高）
+function placeHint(){const b=document.querySelector('.bar'),h=document.getElementById('hint');
+  if(b&&h)h.style.bottom=(innerHeight-b.getBoundingClientRect().top+12)+'px';}
+addEventListener('resize',placeHint); placeHint();
 requestAnimationFrame(frame);
 })();
 </script>

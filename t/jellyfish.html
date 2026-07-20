@@ -52,14 +52,20 @@ function step(dt){
   for(const j of jellies){
     j.px=j.x; j.ph+=j.fr*dt;
     const contract=Math.max(0,-Math.cos(j.ph)); // strongest when bell contracts
-    j.vy += (-contract*140 + 34)*dt; // pulse thrust up, gentle sink between
+    j.vy += (-contract*140 + 44.5)*dt; // pulse thrust up, sink between — balanced so they hover
     j.vx += Math.sin(t*0.5+j.hue)*4*dt;
-    if(pointer.on){ const dx=pointer.x-j.x,dy=pointer.y-j.y,d=Math.hypot(dx,dy)+1; j.vx+=dx/d*60*dt; j.vy+=dy/d*60*dt; }
+    if(pointer.on){ const dx=pointer.x-j.x,dy=pointer.y-j.y,d=Math.hypot(dx,dy)+1; j.vx+=dx/d*180*dt; j.vy+=dy/d*180*dt; }
     j.vx*=Math.pow(0.3,dt); j.vy*=Math.pow(0.5,dt);
     j.x+=j.vx*dt; j.y+=j.vy*dt;
     if(j.y<-j.s*2){ j.y=H+j.s*2; j.x=40+Math.random()*(W-80); }
     if(j.y>H+j.s*3){ j.y=-j.s*2; }
     if(j.x<-j.s){j.x=-j.s;j.vx=Math.abs(j.vx);} if(j.x>W+j.s){j.x=W+j.s;j.vx=-Math.abs(j.vx);}
+  }
+  // very soft mutual repulsion so they never merge into one glowing blob
+  for(let a=0;a<jellies.length;a++)for(let c=a+1;c<jellies.length;c++){
+    const A=jellies[a],B=jellies[c], dx=B.x-A.x, dy=B.y-A.y, d=Math.hypot(dx,dy)+1, m=(A.s+B.s)*1.15;
+    if(d<m){ const f=(1-d/m)*120*dt, ux=dx/d, uy=dy/d;
+      A.vx-=ux*f; A.vy-=uy*f; B.vx+=ux*f; B.vy+=uy*f; }
   }
 }
 function drawJelly(j){
@@ -98,7 +104,10 @@ function draw(){
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
   // light rays
   ctx.globalCompositeOperation='lighter';
-  for(let i=0;i<4;i++){ const x=W*(0.2+0.2*i)+Math.sin(t*0.2+i)*30; const rg=ctx.createLinearGradient(x,0,x+60,H); rg.addColorStop(0,'rgba(80,140,255,0.06)');rg.addColorStop(1,'rgba(80,140,255,0)'); ctx.fillStyle=rg; ctx.beginPath();ctx.moveTo(x-30,0);ctx.lineTo(x+30,0);ctx.lineTo(x+90,H);ctx.lineTo(x-10,H);ctx.closePath();ctx.fill(); }
+  for(let i=0;i<4;i++){ const x=W*(0.2+0.2*i)+Math.sin(t*0.2+i)*30;
+    // gradient runs ACROSS the shaft so both edges melt away instead of showing a hard line
+    const rg=ctx.createLinearGradient(x-40,H*0.5,x+100,H*0.5); rg.addColorStop(0,'rgba(80,140,255,0)');rg.addColorStop(0.5,'rgba(80,140,255,0.075)');rg.addColorStop(1,'rgba(80,140,255,0)');
+    ctx.fillStyle=rg; ctx.beginPath();ctx.moveTo(x-30,0);ctx.lineTo(x+30,0);ctx.lineTo(x+90,H);ctx.lineTo(x-10,H);ctx.closePath();ctx.fill(); }
   ctx.globalCompositeOperation='source-over';
   // bubbles
   for(const b of bubbles){ ctx.strokeStyle='rgba(150,200,255,.25)';ctx.lineWidth=1;ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,6.28);ctx.stroke(); }
@@ -112,7 +121,7 @@ cv.addEventListener('pointermove',e=>{pointer.x=e.clientX;pointer.y=e.clientY;})
 cv.addEventListener('pointerup',()=>pointer.on=false);
 cv.addEventListener('pointercancel',()=>pointer.on=false);
 let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
-document.getElementById('add').onclick=()=>addJelly(W*0.5,H*0.7);
+document.getElementById('add').onclick=()=>addJelly();
 requestAnimationFrame(frame);
 })();
 </script>

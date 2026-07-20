@@ -15,16 +15,16 @@
   .title span{display:block;font-size:12px;opacity:.6;margin-top:2px;font-weight:600}
   .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
     background:rgba(255,255,255,.8);border:1px solid rgba(90,110,130,.2);padding:8px;border-radius:15px;backdrop-filter:blur(10px);box-shadow:0 8px 24px rgba(80,100,130,.18)}
-  .bar button{font:inherit;font-weight:700;font-size:13px;color:#43515c;border:none;background:#fff;padding:9px 14px;border-radius:11px;cursor:pointer;box-shadow:0 2px 0 rgba(80,100,130,.16)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;white-space:nowrap;color:#43515c;border:none;background:#fff;padding:9px 14px;border-radius:11px;cursor:pointer;box-shadow:0 2px 0 rgba(80,100,130,.16)}
   .bar button:active{transform:translateY(1px)}
-  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+  .hint{position:fixed;left:50%;bottom:80px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
 </style>
 </head>
 <body>
 <canvas id="cv"></canvas>
 <div class="title"><b>多米诺</b><span>划一道摆一排，点骨牌推倒</span></div>
 <div class="hint" id="hint">🁢 手指划一道，摆出一排骨牌</div>
-<div class="bar"><button id="push">👉 推倒</button><button id="clear">🧹 清空</button></div>
+<div class="bar"><button id="push">👉 推倒</button><button id="again">🁢 再摆一排</button><button id="clear">🧹 清空</button></div>
 <script>
 (()=>{
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
@@ -35,14 +35,19 @@ function resize(){
   H=window.innerHeight||document.documentElement.clientHeight||600;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  groundY=H*0.72; Lh=Math.min(90,H*0.16); TH=Lh*0.2; SP=Lh*0.62;
+  groundY=H*0.72; Lh=Math.min(90,H*0.16,W*0.2); TH=Lh*0.35; SP=Lh*0.62;
 }
 window.addEventListener('resize',resize); resize();
 
+const FACE=[[],[[1,1]],[[0,0],[2,2]],[[0,0],[1,1],[2,2]],[[0,0],[2,0],[0,2],[2,2]],[[0,0],[2,0],[1,1],[0,2],[2,2]],[[0,0],[2,0],[0,1],[2,1],[0,2],[2,2]]];
 const COLS=['#ff6b8a','#ffa64d','#ffd23d','#4fd18b','#4dc4ff','#8a7bff','#ff8fd0'];
 let doms=[];
-function seedRow(){ doms=[]; const n=16, x0=W*0.14, step=(W*0.72)/(n-1);
-  for(let i=0;i<n;i++) doms.push({x:x0+i*step, ang:0, av:0, col:COLS[i%COLS.length], pip:1+((Math.random()*6)|0)}); }
+function rp(){ return (Math.random()*7)|0; }
+function seedRow(){ doms=[];
+  // space by SP so the chain always has a gap, and leave room on the right for the last one to fall flat
+  const m=Math.min(W*0.08,40), n=Math.max(4,Math.min(22,Math.floor((W-Lh-TH*0.5-m)/SP)+1));
+  const x0=Math.max(m,(W-(n-1)*SP-Lh)/2);
+  for(let i=0;i<n;i++) doms.push({x:x0+i*SP, ang:0, av:0, col:COLS[i%COLS.length], pa:rp(), pb:rp()}); }
 resize(); seedRow();
 
 const GT=26, MAXAV=9;
@@ -78,9 +83,9 @@ function draw(){
     // divider + pips
     ctx.strokeStyle='rgba(0,0,0,.14)';ctx.beginPath();ctx.moveTo(x+2,-Lh*0.5);ctx.lineTo(x+w-2,-Lh*0.5);ctx.stroke();
     ctx.fillStyle='rgba(255,255,255,.9)';
-    const pipsTop=Math.min(3,d.pip), pipsBot=Math.min(3,7-d.pip);
-    for(let k=0;k<pipsTop;k++){ ctx.beginPath();ctx.arc(0,-Lh*0.78+ (k-1)*TH*0.5*(pipsTop>1?1:0), TH*0.14,0,6.28);ctx.fill(); }
-    for(let k=0;k<pipsBot;k++){ ctx.beginPath();ctx.arc(0,-Lh*0.24+ (k-1)*TH*0.5*(pipsBot>1?1:0), TH*0.14,0,6.28);ctx.fill(); }
+    const gp=TH*0.26, pr=TH*0.11;
+    for(const [half,val] of [[-Lh*0.75,d.pa],[-Lh*0.25,d.pb]])
+      for(const [c,rw] of FACE[val]){ ctx.beginPath();ctx.arc((c-1)*gp, half+(rw-1)*gp, pr,0,6.28);ctx.fill(); }
     ctx.restore();
   }
 }
@@ -97,11 +102,13 @@ cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.
 cv.addEventListener('pointermove',e=>{ if(!placing)return; if(Math.abs(e.clientX-downX)>8)movedFar=true; if(Math.abs(e.clientX-lastX)>=SP){ addDom(e.clientX); lastX=e.clientX; } });
 cv.addEventListener('pointerup',()=>placing=false);
 cv.addEventListener('pointercancel',()=>placing=false);
-function addDom(x){ for(const d of doms){ if(Math.abs(d.x-x)<TH*1.2)return; } doms.push({x, ang:0, av:0, col:COLS[(doms.length)%COLS.length], pip:1+((Math.random()*6)|0)}); }
+function addDom(x){ for(const d of doms){ if(Math.abs(d.x-x)<TH*1.2)return; } doms.push({x, ang:0, av:0, col:COLS[(doms.length)%COLS.length], pa:rp(), pb:rp()}); }
 
 let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
 document.getElementById('push').onclick=()=>{ let lm=null; for(const d of doms){ if(d.ang<0.06 && (!lm||d.x<lm.x))lm=d; } if(lm)pushDomino(lm); };
-document.getElementById('clear').onclick=()=>{ doms=[]; };
+document.getElementById('again').onclick=()=>{ seedRow(); };
+document.getElementById('clear').onclick=()=>{ doms=[]; // empty table: bring the "swipe to place" hint back
+  hintGone=false; document.getElementById('hint').style.opacity=''; };
 requestAnimationFrame(frame);
 })();
 </script>

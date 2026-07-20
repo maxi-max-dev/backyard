@@ -27,9 +27,15 @@
   .sym{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;opacity:.9}
   .sym input{width:108px;accent-color:#a97bff}
   .sym b{min-width:22px;text-align:center;color:#d9c6ff}
-  .hint{position:fixed;left:50%;bottom:66px;transform:translateX(-50%);z-index:4;
+  /* sits under the title — the bottom bar used to cover it */
+  .hint{position:fixed;left:18px;top:64px;z-index:7;
     font-size:13px;font-weight:600;opacity:.5;pointer-events:none;letter-spacing:.5px;
     transition:opacity .6s;white-space:nowrap}
+  @media (max-width:520px){
+    .bar{gap:6px;padding:6px 8px}
+    .bar button{font-size:12px;padding:7px 9px}
+    .sym{font-size:12px} .sym input{width:76px}
+  }
 </style>
 </head>
 <body>
@@ -48,14 +54,20 @@
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 let W=0,H=0,dpr=1,cx=0,cy=0,R=0;
 function resize(){
-  dpr=Math.min(window.devicePixelRatio||1,2);
-  W=window.innerWidth||document.documentElement.clientWidth||800;
-  H=window.innerHeight||document.documentElement.clientHeight||600;
+  const nW=window.innerWidth||document.documentElement.clientWidth||800;
+  const nH=window.innerHeight||document.documentElement.clientHeight||600;
+  if(nW===W && nH===H) return;               // nothing changed → don't wipe the drawing
+  let old=null;                               // keep what's already drawn
+  if(W){ old=document.createElement('canvas'); old.width=cv.width; old.height=cv.height;
+         old.getContext('2d').drawImage(cv,0,0); }
+  const oW=W, oH=H;
+  dpr=Math.min(window.devicePixelRatio||1,2); W=nW; H=nH;
   cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
   cx=W/2; cy=H/2; R=Math.min(W,H);
   ctx.globalCompositeOperation='source-over';
   ctx.fillStyle='#07050e'; ctx.fillRect(0,0,W,H);
+  if(old) ctx.drawImage(old,(W-oW)/2,(H-oH)/2,oW,oH);  // re-center the old mandala
 }
 window.addEventListener('resize',resize); resize();
 
@@ -117,7 +129,8 @@ function stepFrame(dt){
   t+=dt;
   // gentle fade so the mandala breathes
   ctx.globalCompositeOperation='source-over';
-  ctx.fillStyle='rgba(7,5,14,0.018)'; ctx.fillRect(0,0,W,H);
+  // fade per SECOND, not per frame, so 60Hz and 120Hz screens look the same as this one
+  ctx.fillStyle='rgba(7,5,14,'+(0.3*dt).toFixed(4)+')'; ctx.fillRect(0,0,W,H);
   hue+=dt*30;
   // auto living pen when idle
   if(AUTO && (t-lastInput)>1.4 && !pointerDown){
