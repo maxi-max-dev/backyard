@@ -1,0 +1,742 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>森 · Hanzi Merge</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#f4efe2;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",Roboto,sans-serif;
+    color:#33302b;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0;touch-action:none}
+  .title{position:fixed;top:13px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:22px;font-weight:800;letter-spacing:4px;color:#2b2724}
+  .title span{display:block;font-size:12px;opacity:.55;margin-top:2px;font-weight:600;letter-spacing:1px}
+  .dock{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:6;
+    pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:7px;max-width:96vw}
+  .bar{pointer-events:auto;display:flex;gap:7px;
+    background:rgba(255,252,246,.82);border:1px solid rgba(120,105,85,.22);padding:7px 10px;border-radius:15px;
+    backdrop-filter:blur(8px);box-shadow:0 4px 14px rgba(90,75,55,.10)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#3b352d;border:1px solid rgba(120,105,85,.22);
+    background:rgba(255,255,255,.7);padding:8px 12px;border-radius:11px;cursor:pointer;white-space:nowrap}
+  .bar button:active{transform:translateY(1px)}
+  /* 合成路径覆盖层是满屏的，DOM 层必须让开，否则按钮浮在遮罩上面还能点 */
+  .veiled{opacity:0;pointer-events:none}
+  .hint{font-size:13px;font-weight:600;opacity:.66;pointer-events:none;white-space:nowrap;
+    max-width:94vw;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 6px rgba(244,239,226,.9)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>森</b><span>拖两个字撞一下</span></div>
+<div class="dock">
+  <div class="hint" id="hint">🈴 把一个字拖到另一个字上，松手</div>
+  <div class="bar">
+    <button id="refill">🧱 补基础块</button>
+    <button id="clear">🧹 清空玩区</button>
+    <button id="wallbtn">📜 收集墙</button>
+  </div>
+</div>
+<script>
+(()=>{
+/* ============================ 数据 ============================ */
+// 起始元素
+const START = "木火日月人口水".split('');
+// 全部元素笔画
+const ELS = {木:4,火:4,日:4,月:4,人:2,口:3,水:4,土:3,石:5,心:4,田:5,女:3,山:3,王:4,子:3,
+  力:2,目:5,牛:4,大:3,十:2,又:2,白:5,立:5,小:3,手:4,刀:2,寸:3,'宀':3,生:5,工:3,中:4,羊:6,马:3,鱼:8,金:8,豕:7};
+
+const RECIPES = (
+ "木木林 木林森 木火杰 木日杲 木人休 木口困 木水沐 木土杜 木子李 木目相 木白柏 木古枯 木工杠 木寸村 木羊样 木支枝 木宀宋 "+
+ "火火炎 火炎焱 火人伙 火日炅 火月炙 火林焚 火森焚 火羊羔 火宀灾 "+
+ "日日昌 日昌晶 日月明 日水沓 日王旺 日立音 日十早 日寸时 日生星 日青晴 日召昭 日音暗 "+
+ "月月朋 月田胃 月力肋 月古胡 月生青 "+
+ "人人从 人从众 人口囚 人山仙 人王全 人子仔 人牛件 人吕侣 人昌倡 人圭佳 人古估 人立位 人白伯 人寸付 人寺侍 人中仲 人十什 人青倩 "+
+ "口口吕 口吕品 口土吐 口力加 口牛告 口大因 口马吗 口又叹 口刀召 口炎啖 口昌唱 口圭哇 口十古 口羊咩 "+
+ "水水沝 水沝淼 水林淋 水炎淡 水女汝 水山汕 水圭洼 水古沽 水白泊 水立泣 水召沼 水工江 水青清 水羊洋 水鱼渔 水十汁 水胡湖 水相湘 "+
+ "土土圭 土牛牡 土寸寺 土小尘 土田里 土里埋 "+
+ "女圭娃 女子好 女又奴 女古姑 女马妈 女宀安 "+
+ "石石砳 石砳磊 石山岩 石马码 石宀宕 "+
+ "心田思 心相想 心因恩 心音意 心中忠 心青情 心生性 "+
+ "田力男 田大奋 山山出 王王珏 王白皇 子宀字 力工功 目手看 目青睛 "+
+ "牛牛牪 牛牪犇 牛宀牢 牛生牲 大小尖 大羊美 十又支 又又双 "+
+ "手召招 手白拍 手工扛 手支技 宀吕宫 宀豕家 金金鑫 羊鱼鲜"
+).split(' ');
+
+// 左偏旁少一笔的（氵 忄 扌）
+const MINUS = "淋淡汝汕洼沽泊泣沼江清洋渔汁湖湘沐招拍扛技情性";
+// 硬修正
+const OVR = {青:8,里:7,出:5,珏:9};
+
+// 小注：不写释义不写拼音，一行就够
+const NOTE = {
+ 森:"三棵树就成了一片", 焚:"树林上面点了火", 焱:"火苗叠火苗", 晶:"三个太阳", 品:"三张嘴才评得出",
+ 众:"三个人挤成一群", 淼:"水漫过来了", 磊:"石头压着石头", 犇:"三头牛一起冲",
+ 鑫:"两块金子叫不出名字，索性堆三块", 囚:"把人关进四面墙", 困:"一棵树被墙圈住",
+ 好:"一个女，一个子，就这样定了", 安:"屋顶下有个女人，风就停了", 家:"屋子底下养一头猪，才算数",
+ 时:"太阳走了一寸", 明:"日和月一起亮着", 尘:"小小的土", 尖:"上头小，下头大", 出:"山上还有一座山",
+ 美:"很大的一只羊", 男:"田里出力气的那个", 思:"心在田上翻来覆去", 想:"心里有了个样子",
+ 意:"心里有声音", 恩:"心被围了起来", 灾:"屋子着了火", 牢:"把牛关起来", 星:"太阳生出来的小点",
+ 青:"月亮生的那个颜色", 埋:"土盖住了里面", 宫:"屋子底下两张嘴", 岩:"山上的石头", 双:"两只手",
+ 林:"两棵树，先这样", 炎:"两把火，还不够热", 昌:"两个太阳", 朋:"两轮月亮并排", 从:"一个人跟着一个人",
+ 吕:"两张嘴上下叠", 沝:"两滴水，还差一滴", 早:"太阳刚过十点", 看:"手搭在眼睛上面"
+};
+
+// 解锁：合出某个字 → 得到一个新元素
+const UNLOCK = [["林","土"],["炎","石"],["昌","十"],["朋","子"],["从","女"],["吕","田"],["沝","山"],
+ ["杰","白"],["杲","生"],["休","立"],["困","又"],["沐","小"],["伙","宀"],["炅","刀"],["炙","寸"],
+ ["明","心"],["沓","手"],["囚","力"],["森","目"],["焱","牛"],["晶","大"],["众","王"],["品","工"],
+ ["淼","中"],["焚","羊"],["淋","马"],["淡","鱼"],["啖","金"],["唱","豕"]];
+
+/* ============================ 画布 ============================ */
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const hintEl=document.getElementById('hint');
+let W=0,H=0,dpr=1,mobile=false,dockH=100;
+let playR={x:0,y:0,w:1,h:1}, wallR={x:0,y:0,w:1,h:1};
+let drawerOpen=false, wallShown=true;
+
+const FONT=(s)=>s+'px "PingFang SC","Hiragino Sans GB","Heiti SC","Microsoft YaHei",sans-serif';
+
+/* ============================ 字形可用性过滤 ============================ */
+// 头号杀手：豆腐块。用私用区码点量出兜底宽，跟目标字比。
+let DROPPED=[];
+function fontFilter(all){
+  ctx.save(); ctx.font=FONT(64);
+  const pua=ctx.measureText('\uE000').width;
+  const ok0=ctx.measureText('木').width;
+  const bad=new Set();
+  // 检测不可信（兜底字宽正好等于正常汉字宽）就整个放弃过滤，宁可不删
+  if(Math.abs(pua-ok0)>0.6 && pua>0){
+    for(const c of all){ const w=ctx.measureText(c).width;
+      if(!(w>0) || Math.abs(w-pua)<0.6) bad.add(c); }
+  }
+  ctx.restore();
+  if(bad.size>all.length*0.4) return new Set(); // 检测明显跑偏
+  return bad;
+}
+
+/* ============================ 建表 ============================ */
+let SK={}, TIER={}, PAR={}, RES=[], ELEMS=[], RSET=new Map(), UNL=[];
+function build(){
+  const allChars=new Set(Object.keys(ELS));
+  for(const r of RECIPES) allChars.add(r[2]);
+  const bad=fontFilter([...allChars]);
+
+  // 可用元素
+  const elemOk=Object.keys(ELS).filter(e=>!bad.has(e));
+  const avail=new Set(elemOk);
+  const keep=[];
+  // 迭代扩张：只保留两个输入都可达、且自身能渲染的配方
+  for(let pass=0;pass<12;pass++){
+    let grew=false;
+    for(const r of RECIPES){
+      const a=r[0],b=r[1],c=r[2];
+      if(keep.indexOf(r)>=0) continue;
+      if(avail.has(a)&&avail.has(b)&&!bad.has(c)){ keep.push(r); if(!avail.has(c)){avail.add(c);grew=true;} }
+    }
+    if(!grew&&pass>0) break;
+  }
+  DROPPED=[...allChars].filter(c=>!avail.has(c));
+
+  RSET=new Map();
+  for(const r of keep){
+    const k=key(r[0],r[1]);
+    if(!RSET.has(k)) RSET.set(k,r[2]);
+    if(!PAR[r[2]]) PAR[r[2]]=[r[0],r[1]];
+  }
+  // 笔画
+  SK=Object.assign({},OVR);
+  for(const e of elemOk) if(SK[e]==null) SK[e]=ELS[e];
+  for(let p=0;p<12;p++) for(const r of keep){
+    if(SK[r[0]]!=null&&SK[r[1]]!=null&&SK[r[2]]==null)
+      SK[r[2]]=SK[r[0]]+SK[r[1]]-(MINUS.indexOf(r[2])>=0?1:0);
+  }
+  // 层级
+  TIER={}; for(const e of elemOk) TIER[e]=0;
+  for(let p=0;p<12;p++) for(const r of keep){
+    if(TIER[r[0]]!=null&&TIER[r[1]]!=null){
+      const t=Math.max(TIER[r[0]],TIER[r[1]])+1;
+      if(TIER[r[2]]==null||t<TIER[r[2]]) TIER[r[2]]=t;
+    }
+  }
+  ELEMS=elemOk.slice();
+  const seen=new Set();
+  RES=[];
+  for(const r of keep){ if(!seen.has(r[2])&&!ELS[r[2]]){ seen.add(r[2]); RES.push(r[2]); } }
+  RES.sort((a,b)=> (TIER[a]-TIER[b]) || (SK[a]-SK[b]) || a.localeCompare(b));
+
+  UNL=UNLOCK.filter(u=>elemOk.indexOf(u[1])>=0).map((u,i)=>({trig:u[0],el:u[1],fb:9+i*3}));
+}
+function key(a,b){ return a.codePointAt(0)<=b.codePointAt(0) ? a+b : b+a; }
+build();
+
+/* ============================ 存档 ============================ */
+const LSK='hanzi-merge-v1';
+let found=new Set(), gotEl=new Set(START.filter(c=>ELEMS.indexOf(c)>=0));
+try{ const s=JSON.parse(localStorage.getItem(LSK)||'{}');
+  if(s.f) for(const c of s.f) if(RES.indexOf(c)>=0) found.add(c);
+  if(s.e) for(const c of s.e) if(ELEMS.indexOf(c)>=0) gotEl.add(c);
+}catch(e){}
+function save(){ try{ localStorage.setItem(LSK,JSON.stringify({f:[...found],e:[...gotEl]})); }catch(e){} }
+function checkUnlock(){
+  const out=[];
+  for(const u of UNL){
+    if(gotEl.has(u.el)) continue;
+    if(found.has(u.trig)||found.size>=u.fb){ gotEl.add(u.el); out.push(u.el); }
+  }
+  return out;
+}
+checkUnlock();
+
+/* ============================ 布局 ============================ */
+function layout(){
+  const nW=window.innerWidth||document.documentElement.clientWidth||800;
+  const nH=window.innerHeight||document.documentElement.clientHeight||600;
+  const oW=W,oH=H, oP=Object.assign({},playR);
+  dpr=Math.min(window.devicePixelRatio||1,2); W=nW; H=nH; mobile=Math.min(W,H)<560||W<720;
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const dk=document.querySelector('.dock');
+  dockH=(dk?dk.offsetHeight:80)+26;
+  const TOP=70;                       // 给左上角标题让出地方
+  if(mobile){
+    wallShown=true;              // 手机靠抽屉开合，别把墙锁在隐藏态
+    const col=58;
+    const dh=drawerOpen? Math.min(H*0.46,Math.max(220,H-340)) : col;
+    wallR={x:10,y:H-dockH-dh-6,w:W-20,h:dh};
+    // 抽屉展开时玩区必须让位，否则字块会画在抽屉上面
+    playR={x:0,y:TOP,w:W,h:Math.max(150,wallR.y-TOP-10)};
+  }else{
+    const ww=Math.max(300,Math.min(470,W*0.36));
+    wallR={x:W-ww-14,y:52,w:ww,h:H-52-dockH+10};
+    // 玩区下边必须停在提示条上方，否则字块会盖住提示文字
+    playR={x:0,y:TOP,w:wallShown?W-ww-28:W,h:H-TOP-dockH};
+  }
+  // 已有块等比重映射，别把成果搞没
+  if(oW>0&&oP.w>0){
+    for(const b of blocks){
+      b.s=bsize();                       // 桌面块换到手机也得跟着改尺寸
+      const fx=(b.bx-oP.x)/oP.w, fy=(b.by-oP.y)/oP.h;
+      b.bx=playR.x+Math.min(1,Math.max(0,fx))*playR.w;
+      b.by=playR.y+Math.min(1,Math.max(0,fy))*playR.h;
+      clampB(b);
+    }
+    separate(60);
+  }
+  paper=null; wallCache=null;
+}
+window.addEventListener('resize',layout);
+window.addEventListener('orientationchange',()=>setTimeout(layout,120));
+
+/* ============================ 玩区块 ============================ */
+const MAXB=14;
+let blocks=[], fx=[], parts=[], T=0, seq=0;
+function bsize(){ return mobile?58:72; }
+function clampB(b){ const s=b.s/2+4;
+  b.bx=Math.max(playR.x+s,Math.min(playR.x+playR.w-s,b.bx));
+  b.by=Math.max(playR.y+s,Math.min(playR.y+playR.h-s,b.by)); }
+// 玩区被压小（比如手机抽屉展开）时，把叠在一起的块推开，别糊成一坨
+function separate(iters){
+  // 目标间距：想留一圈余量，但玩区挤不下时按面积退让
+  const room=Math.sqrt(playR.w*playR.h/Math.max(1,blocks.length))*0.9;
+  for(let k=0;k<iters;k++){
+    let moved=false;
+    for(let i=0;i<blocks.length;i++) for(let j=i+1;j<blocks.length;j++){
+      const a=blocks[i],b=blocks[j];
+      if(a.drag||b.drag||a.merge||b.merge) continue;
+      const need=Math.min((a.s+b.s)*0.5*1.18,Math.max((a.s+b.s)*0.5*0.96,room));
+      let dx=b.bx-a.bx, dy=b.by-a.by, d=Math.hypot(dx,dy);
+      if(d>=need) continue;
+      if(d<0.01){ dx=Math.random()-0.5; dy=Math.random()-0.5; d=Math.hypot(dx,dy)||1; }
+      const push=(need-d)/2/d;
+      a.bx-=dx*push; a.by-=dy*push; b.bx+=dx*push; b.by+=dy*push;
+      clampB(a); clampB(b); moved=true;
+    }
+    if(!moved) break;
+  }
+}
+// 找一个离现有块最远的落点，别一生成就糊成一坨
+function freeSpot(s){
+  let best=null,bd=-1;
+  for(let i=0;i<40;i++){
+    const x=playR.x+s*0.7+Math.random()*Math.max(1,playR.w-s*1.4);
+    const y=playR.y+s*0.7+Math.random()*Math.max(1,playR.h-s*1.4);
+    let d=1e9;
+    for(const o of blocks){ if(o.dead>0)continue; d=Math.min(d,Math.hypot(x-o.bx,y-o.by)); }
+    if(d>bd){bd=d;best={x,y};}
+    if(bd>s*1.25) break;
+  }
+  return best||{x:playR.x+playR.w/2,y:playR.y+playR.h/2};
+}
+function spawn(ch,x,y,pop){
+  const s=bsize();
+  const f=(x==null||y==null)?freeSpot(s):null;
+  const b={ch,s,bx:x==null?f.x:x,
+    by:y==null?f.y:y,
+    ph:Math.random()*6.28,ph2:Math.random()*6.28,id:++seq,
+    pop:pop?1:0,shake:0,drag:false,dead:0};
+  clampB(b); blocks.push(b);
+  // 超上限只淡出最老的几个：dead 是延迟移除的，不能用 while(length>MAX) 否则会把全场标死
+  let over=blocks.filter(z=>z.dead===0).length-MAXB;
+  for(let i=0;i<blocks.length&&over>0;i++){
+    const z=blocks[i];
+    if(z!==b&&z.dead===0&&!z.drag&&!z.merge){ z.dead=0.0001; over--; }
+  }
+  return b;
+}
+function refill(n){
+  const pool=ELEMS.filter(e=>gotEl.has(e));
+  const inplay={}; for(const b of blocks) inplay[b.ch]=(inplay[b.ch]||0)+1;
+  pool.sort((a,b)=>(inplay[a]||0)-(inplay[b]||0)+ (Math.random()-0.5)*0.9);
+  const room=Math.max(0,MAXB-blocks.filter(b=>b.dead===0).length);
+  const k=Math.min(n,room);
+  for(let i=0;i<k;i++) spawn(pool[i%pool.length],null,null,true);
+  separate(40);
+  if(room===0) say('玩区满了，长按一个块可以回收它');
+}
+function seed(){
+  blocks=[];
+  const base=START.filter(c=>ELEMS.indexOf(c)>=0);
+  const list=[]; for(const c of base){ list.push(c); list.push(c); }
+  for(let i=list.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;const t=list[i];list[i]=list[j];list[j]=t;}
+  // 抖动网格铺开，不叠罗汉
+  const n=Math.min(list.length,MAXB), s=bsize();
+  const cols=Math.max(2,Math.round(Math.sqrt(n*playR.w/Math.max(1,playR.h))));
+  const rows=Math.ceil(n/cols);
+  for(let i=0;i<n;i++){
+    const cx=i%cols, cy=(i/cols)|0;
+    const x=playR.x+playR.w*(cx+0.5)/cols+(Math.random()-0.5)*playR.w/cols*0.34;
+    const y=playR.y+playR.h*(cy+0.5)/rows+(Math.random()-0.5)*playR.h/rows*0.34;
+    spawn(list[i],x,y,false);
+  }
+  separate(40);
+}
+
+/* ============================ 声音 ============================ */
+let AC=null;
+function unlockAudio(){ if(AC)return; try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){AC=null;}
+  if(AC&&AC.state==='suspended') AC.resume(); }
+function ding(n){ if(!AC)return; const t=AC.currentTime;
+  const o=AC.createOscillator(),g=AC.createGain(); o.type='sine';
+  const f=300+Math.min(n,14)*26;
+  o.frequency.setValueAtTime(f,t); o.frequency.exponentialRampToValueAtTime(f*2.02,t+0.17);
+  g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.19,t+0.015);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+0.42);
+  o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t+0.45); }
+function nope(){ if(!AC)return; const t=AC.currentTime;
+  const o=AC.createOscillator(),g=AC.createGain(); o.type='triangle';
+  o.frequency.setValueAtTime(190,t); o.frequency.linearRampToValueAtTime(120,t+0.13);
+  g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.10,t+0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+0.2);
+  o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t+0.22); }
+
+/* ============================ 合成 ============================ */
+let toast=null, pulse={}, pathFor=null;
+function say(s){ hintEl.textContent=s; }
+function tryMerge(b){
+  let best=null,bo=0;
+  if(b.merge) return false;           // 已经在合成动画里的块不许再参与
+  for(const o of blocks){
+    // o.merge 必须跳过：否则把第三块丢到正在合成的一对上，会把同一块吃两次，白送一个字
+    if(o===b||o.dead>0||o.merge) continue;
+    const ov=overlap(b,o); if(ov>0.40&&ov>bo){bo=ov;best=o;}
+  }
+  if(!best) return false;
+  const k=key(b.ch,best.ch), res=RSET.get(k);
+  const mx=(b.bx+best.bx)/2,my=(b.by+best.by)/2;
+  if(res){
+    b.merge={x:mx,y:my,t:0}; best.merge={x:mx,y:my,t:0};
+    fx.push({k:'merge',a:b,b:best,x:mx,y:my,t:0,res:res});
+  }else{
+    b.shake=0.42; best.shake=0.42;
+    fx.push({k:'cross',x:mx,y:my,t:0});
+    nope();
+    say('这两个字撞不出东西，谁也没少');
+  }
+  return true;
+}
+function overlap(a,b){
+  const ax=a.bx-a.s/2, ay=a.by-a.s/2, bx=b.bx-b.s/2, by=b.by-b.s/2;
+  const w=Math.min(ax+a.s,bx+b.s)-Math.max(ax,bx);
+  const h=Math.min(ay+a.s,by+b.s)-Math.max(ay,by);
+  if(w<=0||h<=0) return 0;
+  return (w*h)/Math.min(a.s*a.s,b.s*b.s);
+}
+function complete(f){
+  blocks=blocks.filter(b=>b!==f.a&&b!==f.b);
+  const nb=spawn(f.res,f.x,f.y,true); nb.pop=1;
+  for(let i=0;i<16;i++){ const an=i/16*6.283;
+    parts.push({x:f.x,y:f.y,vx:Math.cos(an)*(70+Math.random()*60),vy:Math.sin(an)*(70+Math.random()*60),l:1}); }
+  const isNew=!found.has(f.res);
+  found.add(f.res); pulse[f.res]=1;
+  const ul=checkUnlock(); save(); wallCache=null;
+  ding(found.size);
+  const note=NOTE[f.res];
+  if(ul.length) toast={t:0,txt:'解锁新元素  '+ul.join('  ')};
+  if(isNew) say('得到 '+f.res+(note?'  ·  '+note:'')+'    '+found.size+' / '+RES.length);
+  else say(f.res+(note?'  ·  '+note:'')+'    已在墙上');
+}
+
+/* ============================ 收集墙 ============================ */
+let wallCache=null, wallScroll=0, wallMaxScroll=0;
+function buildWall(){
+  const pad=12, W0=wallR.w-pad*2;
+  const items=[];
+  items.push({h:1,txt:'元素  '+[...gotEl].length+' / '+ELEMS.length});
+  for(const e of ELEMS) items.push({e:e});
+  items.push({h:1,txt:'合成  '+found.size+' / '+RES.length});
+  for(const c of RES) items.push({c:c});
+  let cell=mobile?34:32;
+  const cols=Math.max(4,Math.floor((W0+6)/(cell+6)));
+  cell=Math.floor((W0-(cols-1)*6)/cols);
+  const cs=[]; let y=0,col=0;
+  for(const it of items){
+    if(it.h){ if(col>0){y+=cell+6;col=0;} y+=(y>0?8:0); cs.push({hdr:it.txt,x:0,y:y,w:W0,h:18}); y+=22; continue; }
+    cs.push(Object.assign({x:col*(cell+6),y:y,w:cell,h:cell},it));
+    col++; if(col>=cols){col=0;y+=cell+6;}
+  }
+  if(col>0) y+=cell+6;
+  wallCache={cells:cs,pad:pad,total:y,cell:cell};
+  wallMaxScroll=Math.max(0,y-(wallR.h-38));
+  wallScroll=Math.max(0,Math.min(wallMaxScroll,wallScroll));
+}
+function wallHit(px,py){
+  if(!wallCache) return null;
+  if(mobile&&!drawerOpen) return null;
+  if(py<wallR.y+31||py>wallR.y+wallR.h-2) return null;   // 被裁掉的格子不该能点
+  const ox=wallR.x+wallCache.pad, oy=wallR.y+30-wallScroll;
+  for(const c of wallCache.cells){ if(c.hdr) continue;
+    if(px>=ox+c.x&&px<=ox+c.x+c.w&&py>=oy+c.y&&py<=oy+c.y+c.h) return c; }
+  return null;
+}
+
+/* ============================ 合成路径 ============================ */
+function pathSteps(ch){
+  const out=[], seen=new Set();
+  (function rec(c){ const p=PAR[c]; if(!p||seen.has(c))return; seen.add(c);
+    rec(p[0]); rec(p[1]); out.push([p[0],p[1],c]); })(ch);
+  return out;
+}
+
+/* ============================ 交互 ============================ */
+let pid=null, drag=null, press=null, wdrag=null;
+function pos(e){ return {x:e.clientX,y:e.clientY}; }
+function inR(r,p){ return p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h; }
+
+cv.addEventListener('pointerdown',e=>{
+  if(pid!==null) return;              // 只认第一根手指
+  pid=e.pointerId; e.preventDefault(); unlockAudio();
+  try{cv.setPointerCapture(e.pointerId);}catch(err){}
+  const p=pos(e);
+  if(pathFor){ pathFor=null; return; }
+  // 墙
+  const onWall=(!mobile||drawerOpen)&&inR(wallR,p)&&wallShown;
+  if(mobile&&!drawerOpen&&inR(wallR,p)){ drawerOpen=true; layout(); return; }
+  if(onWall){
+    const c=wallHit(p.x,p.y);
+    wdrag={y0:p.y,s0:wallScroll,moved:0,cell:c};
+    press={t:0,x:p.x,y:p.y,kind:'wall',cell:c};
+    return;
+  }
+  // 玩区块（从上往下找）
+  for(let i=blocks.length-1;i>=0;i--){ const b=blocks[i];
+    if(b.dead>0||b.merge) continue;
+    const dx=Math.abs(p.x-b.bx),dy=Math.abs(p.y-b.by);
+    if(dx<=b.s/2+3&&dy<=b.s/2+3){
+      drag={b:b,ox:b.bx-p.x,oy:b.by-p.y}; b.drag=true;
+      blocks.splice(i,1); blocks.push(b);
+      press={t:0,x:p.x,y:p.y,kind:'block',b:b};
+      return;
+    }
+  }
+});
+cv.addEventListener('pointermove',e=>{
+  if(e.pointerId!==pid) return;
+  const p=pos(e);
+  if(press){ if(Math.hypot(p.x-press.x,p.y-press.y)>9) press=null; }
+  if(drag){ drag.b.bx=p.x+drag.ox; drag.b.by=p.y+drag.oy; clampB(drag.b); }
+  else if(wdrag){ wdrag.moved=Math.max(wdrag.moved,Math.abs(p.y-wdrag.y0));
+    if(wdrag.moved>8) wallScroll=Math.max(0,Math.min(wallMaxScroll,wdrag.s0-(p.y-wdrag.y0))); }
+});
+function endPointer(e){
+  if(e&&e.pointerId!==pid) return;
+  if(drag){ drag.b.drag=false; tryMerge(drag.b); drag=null; }
+  else if(wdrag){
+    if(wdrag.moved<=8&&wdrag.cell) tapCell(wdrag.cell);
+    wdrag=null;
+  }
+  press=null; pid=null;
+}
+cv.addEventListener('pointerup',endPointer);
+cv.addEventListener('pointercancel',endPointer);
+window.addEventListener('blur',()=>endPointer(null));
+cv.addEventListener('wheel',e=>{ const p={x:e.clientX,y:e.clientY};
+  if(inR(wallR,p)&&(!mobile||drawerOpen)){ e.preventDefault();
+    wallScroll=Math.max(0,Math.min(wallMaxScroll,wallScroll+e.deltaY)); } },{passive:false});
+
+// 手上是否已经握着这个字的两个部件（只说够不够得着，不说是哪两个）
+function have(ch){ return gotEl.has(ch)||found.has(ch); }
+function reachable(ch){ const p=PAR[ch]; return !!p&&have(p[0])&&have(p[1]); }
+function tapCell(c){
+  if(c.e){ // 元素
+    if(gotEl.has(c.e)){ const b=spawn(c.e,null,null,true); b.pop=1; say('放了一个 '+c.e+' 到玩区'); }
+    else say('再多合出几个字，会解锁新元素');
+    return;
+  }
+  if(found.has(c.c)){ const b=spawn(c.c,null,null,true); b.pop=1;
+    say('放了一个 '+c.c+' 到玩区  ·  长按格子看合成路径'); }
+  else say('还没合出来 · 这个字 '+SK[c.c]+' 画 · '+(reachable(c.c)?'两个部件你现在都有了':'上游还没挖到'));
+}
+function longPress(){
+  if(!press) return;
+  if(press.kind==='block'){
+    const b=press.b; if(drag&&drag.b===b){drag.b.drag=false;drag=null;}
+    b.dead=0.0001; say('回收了一个 '+b.ch);
+  }else if(press.kind==='wall'&&press.cell){
+    const c=press.cell;
+    if(c.c&&found.has(c.c)){ pathFor=c.c; wdrag=null; }
+    else if(c.e&&gotEl.has(c.e)) say(c.e+' 是基础元素，没有上游');
+    else if(c.c) say('还没合出来 · 这个字 '+SK[c.c]+' 画 · '+(reachable(c.c)?'两个部件你现在都有了':'上游还没挖到'));
+    else say('还没解锁 · 多合出几个字');
+  }
+  press=null;
+}
+
+document.getElementById('refill').onclick=()=>{unlockAudio();refill(4);};
+document.getElementById('clear').onclick=()=>{unlockAudio();blocks=[];fx=[];say('玩区清空了，从墙上点字可以拿回来');};
+document.getElementById('wallbtn').onclick=()=>{unlockAudio();
+  if(mobile){drawerOpen=!drawerOpen;layout();}
+  else{wallShown=!wallShown;layout();}};
+
+/* ============================ 步进 ============================ */
+function step(dt){
+  T+=dt;
+  if(press){ press.t+=dt; if(press.t>0.5) longPress(); }
+  for(const b of blocks){
+    if(b.pop>0) b.pop=Math.max(0,b.pop-dt*4.2);
+    if(b.shake>0) b.shake=Math.max(0,b.shake-dt*2.2);
+    if(b.dead>0) b.dead+=dt*4;
+    if(b.merge){ b.merge.t=Math.min(1,b.merge.t+dt*5.2);
+      b.bx+=(b.merge.x-b.bx)*Math.min(1,dt*14); b.by+=(b.merge.y-b.by)*Math.min(1,dt*14); }
+  }
+  blocks=blocks.filter(b=>b.dead<1);
+  for(let i=fx.length-1;i>=0;i--){ const f=fx[i]; f.t+=dt;
+    if(f.k==='merge'&&f.t>0.19){ complete(f); fx.splice(i,1); }
+    else if(f.k==='cross'&&f.t>0.75) fx.splice(i,1);
+  }
+  for(let i=parts.length-1;i>=0;i--){ const p=parts[i];
+    p.x+=p.vx*dt; p.y+=p.vy*dt; p.vx*=0.92; p.vy*=0.92; p.l-=dt*2.1;
+    if(p.l<=0) parts.splice(i,1); }
+  for(const k in pulse){ pulse[k]-=dt*1.6; if(pulse[k]<=0) delete pulse[k]; }
+  if(toast){ toast.t+=dt; if(toast.t>2.4) toast=null; }
+}
+
+/* ============================ 绘制 ============================ */
+let paper=null;
+function makePaper(){
+  paper=document.createElement('canvas'); paper.width=Math.max(1,Math.round(W)); paper.height=Math.max(1,Math.round(H));
+  const g=paper.getContext('2d');
+  const lg=g.createLinearGradient(0,0,W*0.4,H);
+  lg.addColorStop(0,'#f7f2e6'); lg.addColorStop(1,'#efe7d6');
+  g.fillStyle=lg; g.fillRect(0,0,W,H);
+  g.fillStyle='rgba(150,130,100,0.055)';
+  for(let i=0;i<Math.round(W*H/2600);i++){
+    const x=Math.random()*W,y=Math.random()*H,r=Math.random()*1.3+0.2;
+    g.beginPath(); g.arc(x,y,r,0,6.283); g.fill();
+  }
+}
+function rr(x,y,w,h,r){ ctx.beginPath();
+  if(ctx.roundRect){ ctx.roundRect(x,y,w,h,r); return; }
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+let veiled=null;
+function draw(){
+  if(veiled!==!!pathFor){ veiled=!!pathFor;
+    document.querySelector('.dock').classList.toggle('veiled',veiled);
+    document.querySelector('.title').classList.toggle('veiled',veiled); }
+  if(!paper) makePaper();
+  ctx.drawImage(paper,0,0);
+  drawWall();
+  drawPlay();
+  drawFx();
+  if(pathFor) drawPath();
+  if(toast) drawToast();
+}
+function drawPlay(){
+  ctx.save();
+  ctx.beginPath(); ctx.rect(playR.x-2,playR.y-2,playR.w+4,playR.h+4); ctx.clip();
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(const b of blocks){
+    const fl=b.drag?0:1;
+    const x=b.bx+Math.sin(T*0.62+b.ph)*3.4*fl, y=b.by+Math.cos(T*0.51+b.ph2)*3.2*fl;
+    const sh=b.shake>0?Math.sin(T*46)*7*b.shake:0;
+    let sc=1+ (b.pop>0? Math.sin(b.pop*Math.PI)*0.34 : 0);
+    if(b.merge) sc*= (1-b.merge.t*0.5);
+    let al=1; if(b.dead>0) { al=Math.max(0,1-b.dead); sc*= (1-b.dead*0.3); }
+    const s=b.s*sc;
+    ctx.save(); ctx.globalAlpha=al; ctx.translate(x+sh,y);
+    ctx.fillStyle='rgba(70,56,40,0.16)';
+    rr(-s/2+2,-s/2+5,s,s,s*0.24); ctx.fill();
+    ctx.fillStyle=b.drag?'#4a423a':'#2f2a25';
+    rr(-s/2,-s/2,s,s,s*0.24); ctx.fill();
+    if(b.drag){ ctx.strokeStyle='rgba(200,120,40,0.85)'; ctx.lineWidth=2; ctx.stroke(); }
+    ctx.fillStyle='#fbf6ea'; ctx.font=FONT(Math.round(s*(mobile?0.58:0.585)));
+    ctx.fillText(b.ch,0,s*0.03);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+function drawFx(){
+  ctx.save(); ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(const f of fx){
+    if(f.k==='cross'){
+      const a=Math.max(0,1-f.t/0.75), r=16+f.t*10;
+      ctx.globalAlpha=a; ctx.strokeStyle='#8d8477'; ctx.lineWidth=4; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(f.x-r,f.y-r); ctx.lineTo(f.x+r,f.y+r);
+      ctx.moveTo(f.x+r,f.y-r); ctx.lineTo(f.x-r,f.y+r); ctx.stroke();
+      ctx.globalAlpha=1;
+    }
+  }
+  for(const p of parts){
+    ctx.globalAlpha=Math.max(0,p.l); ctx.fillStyle='#c8802f';
+    ctx.beginPath(); ctx.arc(p.x,p.y,2.6*p.l+0.7,0,6.283); ctx.fill();
+  }
+  ctx.globalAlpha=1; ctx.restore();
+}
+function drawWall(){
+  if(mobile&&!wallShown) return;
+  if(!mobile&&!wallShown) return;
+  if(!wallCache) buildWall();
+  const r=wallR;
+  ctx.save();
+  ctx.fillStyle='rgba(70,56,40,0.10)'; rr(r.x+2,r.y+4,r.w,r.h,16); ctx.fill();
+  ctx.fillStyle='rgba(255,253,247,0.90)'; rr(r.x,r.y,r.w,r.h,16); ctx.fill();
+  ctx.strokeStyle='rgba(120,105,85,0.24)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.beginPath(); rr(r.x,r.y,r.w,r.h,16); ctx.clip();
+
+  const pct=found.size/Math.max(1,RES.length);
+  ctx.textBaseline='middle';
+  if(mobile&&!drawerOpen){
+    ctx.textAlign='left'; ctx.fillStyle='#4b443a'; ctx.font=FONT(13);
+    ctx.fillText('收集墙  '+found.size+' / '+RES.length,r.x+14,r.y+r.h/2-8);
+    const bw=r.w-28;
+    ctx.fillStyle='rgba(120,105,85,0.18)'; rr(r.x+14,r.y+r.h/2+6,bw,6,3); ctx.fill();
+    ctx.fillStyle='#c8802f'; rr(r.x+14,r.y+r.h/2+6,Math.max(3,bw*pct),6,3); ctx.fill();
+    ctx.textAlign='right'; ctx.fillStyle='#8b8072'; ctx.font=FONT(12);
+    ctx.fillText('↑ 展开',r.x+r.w-14,r.y+r.h/2-8);
+    ctx.restore(); return;
+  }
+  // 顶栏
+  ctx.textAlign='left'; ctx.fillStyle='#4b443a'; ctx.font=FONT(13);
+  ctx.fillText('收集墙  '+found.size+' / '+RES.length,r.x+14,r.y+16);
+  const bw=r.w-28;
+  ctx.fillStyle='rgba(120,105,85,0.16)'; rr(r.x+14,r.y+24,bw,4,2); ctx.fill();
+  ctx.fillStyle='#c8802f'; rr(r.x+14,r.y+24,Math.max(2,bw*pct),4,2); ctx.fill();
+
+  const ox=r.x+wallCache.pad, oy=r.y+30-wallScroll;
+  ctx.beginPath(); ctx.rect(r.x+2,r.y+32,r.w-4,r.h-34); ctx.clip();
+  for(const c of wallCache.cells){
+    const y=oy+c.y;
+    if(y>r.y+r.h+40||y+c.h<r.y+24) continue;
+    if(c.hdr){ ctx.textAlign='left'; ctx.fillStyle='#9b9081'; ctx.font=FONT(11);
+      ctx.fillText(c.hdr,ox,y+9); continue; }
+    const ch=c.e||c.c, lit=c.e?gotEl.has(c.e):found.has(c.c);
+    const pl=pulse[ch]||0, sc=1+(pl>0?Math.sin(pl*Math.PI)*0.3:0);
+    ctx.save(); ctx.translate(ox+c.x+c.w/2,y+c.h/2); ctx.scale(sc,sc);
+    ctx.textAlign='center';
+    if(lit){
+      ctx.fillStyle=c.e?'#e6dcc6':'#2f2a25';
+      rr(-c.w/2,-c.h/2,c.w,c.h,c.w*0.24); ctx.fill();
+      if(c.e){ ctx.strokeStyle='rgba(120,105,85,0.35)'; ctx.lineWidth=1; ctx.stroke(); }
+      ctx.fillStyle=c.e?'#403a31':'#fbf6ea'; ctx.font=FONT(Math.round(c.w*0.6));
+      ctx.fillText(ch,0,1);
+    }else{
+      // 够得着的（两个部件都在手上）底色暖一点，给卡住的人一个可以扫的目标，但不说是哪两个
+      const near=c.c&&reachable(c.c);
+      ctx.fillStyle=near?'rgba(200,128,47,0.13)':'rgba(120,105,85,0.09)';
+      rr(-c.w/2,-c.h/2,c.w,c.h,c.w*0.24); ctx.fill();
+      ctx.fillStyle=near?'rgba(160,100,35,0.78)':'rgba(110,100,86,0.5)';
+      ctx.font=FONT(Math.round(c.w*0.36));
+      ctx.fillText(c.e?'?':String(SK[c.c]||''),0,1);
+    }
+    ctx.restore();
+  }
+  // 还有更多 → 底部渐隐提示可以滚
+  if(wallScroll<wallMaxScroll-1){
+    const gy=r.y+r.h-30, g=ctx.createLinearGradient(0,gy,0,r.y+r.h);
+    g.addColorStop(0,'rgba(255,253,247,0)'); g.addColorStop(1,'rgba(255,253,247,0.97)');
+    ctx.fillStyle=g; ctx.fillRect(r.x,gy,r.w,30);
+    ctx.fillStyle='rgba(120,105,85,0.5)'; ctx.font=FONT(11); ctx.textAlign='center';
+    ctx.fillText('↓ 还有',r.x+r.w/2,r.y+r.h-10);
+  }
+  ctx.restore();
+}
+function drawToast(){
+  const a=Math.min(1,Math.min(toast.t*4,(2.4-toast.t)*3));
+  ctx.save(); ctx.globalAlpha=Math.max(0,a);
+  ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font=FONT(15);
+  const w=ctx.measureText(toast.txt).width+34;
+  const x=playR.x+playR.w/2, y=playR.y+(mobile?64:34);   // 别压住左上角标题
+  ctx.fillStyle='#2f2a25'; rr(x-w/2,y-17,w,34,17); ctx.fill();
+  ctx.fillStyle='#f6d9a8'; ctx.fillText(toast.txt,x,y+1);
+  ctx.restore();
+}
+function drawPath(){
+  const steps=pathSteps(pathFor);
+  ctx.save();
+  ctx.fillStyle='rgba(38,33,27,0.86)'; ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  const n=steps.length;
+  const lh=Math.min(46,Math.max(28,(H-190)/Math.max(1,n)));
+  const fs=Math.min(26,lh*0.62);
+  let y=H/2-(n*lh)/2+lh/2;
+  ctx.fillStyle='#f6d9a8'; ctx.font=FONT(15);
+  ctx.fillText(pathFor+' 的来路',W/2,y-lh-6);
+  for(const s of steps){
+    ctx.font=FONT(fs); ctx.fillStyle='#efe6d4';
+    ctx.fillText(s[0]+'  +  '+s[1]+'   →   '+s[2],W/2,y);
+    y+=lh;
+  }
+  if(NOTE[pathFor]){ ctx.font=FONT(13); ctx.fillStyle='rgba(240,230,210,0.62)';
+    ctx.fillText(NOTE[pathFor],W/2,y+6); y+=24; }
+  ctx.font=FONT(12); ctx.fillStyle='rgba(240,230,210,0.45)';
+  ctx.fillText('点任意处关闭',W/2,Math.min(H-30,y+16));
+  ctx.restore();
+}
+
+/* ============================ 启动 ============================ */
+layout(); seed(); buildWall();
+if(found.size>0) say('接着挖  ·  '+found.size+' / '+RES.length+'  已收集');
+let last=performance.now(),raf=0;
+function frame(now){ let dt=(now-last)/1000; last=now; if(!(dt>0)) dt=0.016;
+  dt=Math.min(dt,0.05); step(dt); draw(); raf=requestAnimationFrame(frame); }
+raf=requestAnimationFrame(frame);
+
+/* 手动步进钩子：车道只有 1~4fps，靠等真实时间不可信 */
+window.__tick=function(n,dt){ n=n||1; dt=dt||1/60; for(let i=0;i<n;i++) step(dt); draw(); };
+window.__state=function(){ return {
+  blocks:blocks.map(b=>({ch:b.ch,x:Math.round(b.bx),y:Math.round(b.by),s:b.s,dead:b.dead,merging:!!b.merge})),
+  found:[...found], foundN:found.size, total:RES.length, els:[...gotEl], elsAll:ELEMS.length,
+  dropped:DROPPED, recipes:RSET.size, fx:fx.length, parts:parts.length, mobile:mobile,
+  play:playR, wall:wallR, drawerOpen:drawerOpen, pathFor:pathFor, toast:toast?toast.txt:null,
+  hint:hintEl.textContent, strokes:SK, tiers:RES.map(c=>TIER[c])
+};};
+window.__table=function(){ return {recipes:[...RSET.entries()], res:RES, els:ELEMS, unl:UNL, par:PAR}; };
+window.__cellAt=function(ch){ if(!wallCache) buildWall();
+  const c=wallCache.cells.find(z=>(z.e||z.c)===ch); if(!c) return null;
+  return {x:wallR.x+wallCache.pad+c.x+c.w/2, y:wallR.y+30-wallScroll+c.y+c.h/2, w:c.w,
+    onscreen:(wallR.y+30-wallScroll+c.y)>wallR.y+30 && (wallR.y+30-wallScroll+c.y+c.h)<wallR.y+wallR.h};};
+window.__scrollWall=function(v){ wallScroll=Math.max(0,Math.min(wallMaxScroll,v)); };
+window.__merge=function(a,b){ // 测试用：直接在玩区放两块并撞
+  const x=playR.x+playR.w*0.4, y=playR.y+playR.h*0.5;
+  const A=spawn(a,x,y,false), B=spawn(b,x+6,y+6,false);
+  tryMerge(B); return RSET.get(key(a,b))||null; };
+window.__reset=function(){ found=new Set(); gotEl=new Set(START.filter(c=>ELEMS.indexOf(c)>=0));
+  save(); wallCache=null; seed(); };
+})();
+</script>
+</body>
+</html>

@@ -134,17 +134,34 @@ function paintBg(){
 }
 
 /* ---------- 玻璃层 ---------- */
+// 每块玻璃的高光排布：角度/条数/位置/宽窄跟着换玻璃重掷一次。
+// 掷完存起来，resize 重画时照抄，高光不会自己跳。
+let glassCfg=null;
+function rollGlass(){
+  const lean=Math.random()<0.5?-1:1;                    // 左倾 / 右倾，一眼就看得出换了块
+  const ang=lean*(0.22+Math.random()*0.95);
+  const n=2+((Math.random()*3)|0);                      // 2~4 条
+  const bands=[];
+  for(let i=0;i<n;i++){
+    const t=(i+0.5)/n;
+    const off=-0.42+0.80*t+(Math.random()-0.5)*0.13;    // 归一化到对角线长度，均匀铺开再抖一下
+    const bw=0.025+Math.random()*0.062;
+    bands.push([off,bw,0.048+Math.random()*0.062]);
+  }
+  glassCfg={ang,lean,bands};
+}
 function paintGlass(){
+  if(!glassCfg) rollGlass();
   glc.setTransform(1,0,0,1,0,0); glc.clearRect(0,0,W,H);
-  const g=glc.createLinearGradient(0,0,W,H);
+  const g=glassCfg.lean<0?glc.createLinearGradient(0,0,W,H):glc.createLinearGradient(W,0,0,H);
   g.addColorStop(0,'rgba(255,255,255,0.115)');
   g.addColorStop(0.45,'rgba(210,232,255,0.04)');
   g.addColorStop(1,'rgba(255,255,255,0.10)');
   glc.fillStyle=g; glc.fillRect(0,0,W,H);
   // 斜向高光条
   const D=Math.hypot(W,H);
-  glc.save(); glc.translate(W*0.5,H*0.5); glc.rotate(-0.62);
-  const bands=[[-D*0.30,D*0.075,0.085],[D*0.02,D*0.032,0.11],[D*0.20,D*0.05,0.06]];
+  glc.save(); glc.translate(W*0.5,H*0.5); glc.rotate(glassCfg.ang);
+  const bands=glassCfg.bands.map(([off,bw,a])=>[off*D,bw*D,a]);
   for(const [off,bw,a] of bands){
     const bgd=glc.createLinearGradient(off,0,off+bw,0);
     bgd.addColorStop(0,'rgba(255,255,255,0)');
@@ -434,6 +451,7 @@ function startCollapse(px,py){
 }
 function newGlass(){
   hueSeed=(352+Math.random()*38)%360;   // 玫瑰金~暖橙~琥珀的黄昏，不许跑到黄绿去
+  rollGlass();                          // 高光也换一套，光靠天色变化不够"这是新的一块"
 
   cracks=[]; grid=new Map(); gen=0; pending=[]; collapse=null; refillAt=-1;
   paintBg();
@@ -485,7 +503,8 @@ window.__tick=(n)=>{ for(let i=0;i<(n||1);i++) step(1/60); };
 window.__st=()=>({T,frags:frags.length,live:frags.reduce((a,f)=>a+(f.fade>=1?1:0),0),
   pending:pending.length,cracks:cracks.length,
   segs:cracks.reduce((a,c)=>a+c.length,0),collapse:!!collapse,remain:+remainFrac().toFixed(3),
-  stops,ringStops,
+  stops,ringStops,glass:{ang:+glassCfg.ang.toFixed(3),n:glassCfg.bands.length,
+    offs:glassCfg.bands.map(b=>+b[0].toFixed(3))},
   nan:frags.some(f=>!isFinite(f.x)||!isFinite(f.y)||!isFinite(f.a))});
 window.__hit=(x,y)=>impact(x,y);
 window.__audio=()=>actx?actx.state:'none';

@@ -40,7 +40,7 @@
 <canvas id="cv"></canvas>
 <div class="title"><b>彩色的影子</b><span>两盏灯，猜猜蓝灯照出的影子是什么颜色</span></div>
 <div class="dock">
-  <div class="hint" id="hint">🔦 拖物体、拖灯，小圆点调远近</div>
+  <div class="hint" id="hint">🔦 拖物体 · 拖灯 · 拖白圆环推远拉近</div>
   <div class="bar">
     <button id="addObj">＋ 加个东西</button>
     <button id="addLight">💚 加绿灯</button>
@@ -81,12 +81,14 @@ function mag(o){return 1/(1-o.z);}                 // wall-projection magnificat
 function reset(){
   // lamps flank the objects: each object then throws one shadow outward (clean red / clean blue)
   // and one inward, where they cross each other into true black.
-  const narrow=W<600, sp=narrow?0.42:0.40, ly=H*0.26, zs=narrow?0.85:1;
+  // shallow default depth on purpose: the shadows must sit ON the object, so the eye reads
+  // "the red patch IS this block's shadow" before it reads anything else. Depth is the toy.
+  const narrow=W<600, sp=narrow?0.40:0.36, ly=H*0.26, zs=narrow?0.85:1;
   lights=[
     {...LIGHT_DEFS[0], x:W*(0.5-sp/2), y:ly, r:20},
     {...LIGHT_DEFS[1], x:W*(0.5+sp/2), y:ly, r:20},
   ];
-  objs=[ mkObj('square',0.36,0.45,0.42*zs), mkObj('hex',0.50,0.51,0.36*zs), mkObj('circle',0.62,0.44,0.46*zs) ];
+  objs=[ mkObj('square',0.38,0.46,0.17*zs), mkObj('hex',0.50,0.53,0.15*zs), mkObj('circle',0.62,0.45,0.18*zs) ];
   syncBtns(); needs=true;
 }
 function resize(){
@@ -165,11 +167,19 @@ function render(){
     ctx.closePath();
     ctx.fillStyle='rgba(14,12,20,.94)'; ctx.fill();
     ctx.lineWidth=1.5; ctx.strokeStyle='rgba(255,255,255,.42)'; ctx.stroke();
-    // depth grip
-    const hx=o.x+Math.cos(-0.72)*(rv+13), hy=o.y+Math.sin(-0.72)*(rv+13);
-    ctx.beginPath(); ctx.arc(hx,hy,5.5,0,6.283);
-    ctx.fillStyle='rgba(255,255,255,.72)'; ctx.fill();
-    ctx.strokeStyle='rgba(20,10,30,.5)'; ctx.lineWidth=1; ctx.stroke();
+    // depth grip: a bare dot read as render noise, so it now wears a leash back to its own
+    // object plus a dark collar, and it is big enough to look like something you can grab
+    const ca2=Math.cos(-0.72), sa2=Math.sin(-0.72);
+    const hx=o.x+ca2*(rv+17), hy=o.y+sa2*(rv+17);
+    ctx.beginPath(); ctx.moveTo(o.x+ca2*(rv-2),o.y+sa2*(rv-2)); ctx.lineTo(hx-ca2*8,hy-sa2*8);
+    ctx.strokeStyle='rgba(255,255,255,.55)'; ctx.lineWidth=2; ctx.setLineDash([3,3]); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(hx,hy,10,0,6.283);
+    ctx.fillStyle='rgba(20,12,30,.5)'; ctx.fill();                 // collar: keeps it visible on a bright wall
+    ctx.beginPath(); ctx.arc(hx,hy,8,0,6.283);
+    ctx.strokeStyle='rgba(255,255,255,.95)'; ctx.lineWidth=2.5; ctx.stroke();
+    ctx.beginPath(); ctx.arc(hx,hy,2.6,0,6.283);
+    ctx.fillStyle='rgba(255,255,255,.95)'; ctx.fill();
   }
   // lamps: additive halo, then an opaque coloured bulb so it reads as "the red one / the blue one"
   ctx.globalCompositeOperation='lighter';
@@ -202,8 +212,8 @@ function pick(x,y){
   // then strict z-order per object: an object's own grip only beats things drawn *below* it,
   // never the body of an object stacked on top of it
   for(let i=objs.length-1;i>=0;i--){ const o=objs[i], rv=visR(o);
-    const hx=o.x+Math.cos(-0.72)*(rv+13), hy=o.y+Math.sin(-0.72)*(rv+13);
-    if(d2(x,y,hx,hy)<22*22) return {t:'depth',o};
+    const hx=o.x+Math.cos(-0.72)*(rv+17), hy=o.y+Math.sin(-0.72)*(rv+17);
+    if(d2(x,y,hx,hy)<24*24) return {t:'depth',o};
     const r=Math.max(rv+8,26);
     if(d2(x,y,o.x,o.y)<r*r) return {t:'obj',o,dx:o.x-x,dy:o.y-y}; }
   return null;
@@ -230,14 +240,20 @@ cv.addEventListener('pointermove',e=>{
   if(grab.t==='obj'){ grab.o.x=x+grab.dx; grab.o.y=y+grab.dy; clampView(grab.o); }
   else if(grab.t==='light'){ grab.L.x=x; grab.L.y=y; clampView(grab.L); clampLight(grab.L); clampView(grab.L); }
   else if(grab.t==='depth'){ const d=Math.hypot(x-grab.o.x,y-grab.o.y);
-    grab.o.z=Math.max(0.08,Math.min(0.72,((d-13)/R0-1)/0.9)); }
+    grab.o.z=Math.max(0.08,Math.min(0.72,((d-17)/R0-1)/0.9)); }
   needs=true;
 });
-function release(){ if(!grab)return; grab=null; samples=30; needs=true; }
+function release(){ if(!grab)return; grab=null; samples=30; needs=true; showHint(); }
 cv.addEventListener('pointerup',release);
 cv.addEventListener('pointercancel',release);
 
-let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+// the hint used to vanish for good on the first touch, so anyone who forgot what the rings do
+// had no way back. Now it only steps aside while you are actually handling something.
+const hintEl=document.getElementById('hint');
+let hintTimer=0;
+function hideHint(){ hintEl.style.opacity=0; clearTimeout(hintTimer); }
+function showHint(delay){ clearTimeout(hintTimer);
+  hintTimer=setTimeout(()=>{hintEl.style.opacity=0.95;},delay===undefined?2200:delay); }
 
 // ---- tiny switch click ----
 let ac=null;
@@ -256,14 +272,14 @@ function syncBtns(){
 addObjBtn.onclick=()=>{ unlock(); if(objs.length>=8)return;
   // golden-angle spiral with a growing radius, so new pieces don't land on the old ones
   const k=objs.length, kinds=['square','hex','circle'], a=k*2.3999632, rr=0.15+k*0.028;
-  const o=mkObj(kinds[k%3],0.5,0.52,0.2+((k*0.13)%0.42));
+  const o=mkObj(kinds[k%3],0.5,0.52,0.14+((k*0.09)%0.26));
   o.x=W*0.5+Math.cos(a)*W*rr; o.y=H*0.52+Math.sin(a)*H*(rr*1.15); o.rot=a*0.5;
   o.x=Math.max(R0*2,Math.min(W-R0*2,o.x)); o.y=Math.max(H*0.22,Math.min(H*0.72,o.y));
-  objs.push(o); syncBtns(); hideHint(); needs=true; click(); };
+  objs.push(o); syncBtns(); hideHint(); showHint(); needs=true; click(); };
 addLightBtn.onclick=()=>{ unlock();
   if(lights.length>=3) lights.pop();
   else lights.push({...LIGHT_DEFS[2], x:W*0.5, y:H*0.74, r:20});
-  syncBtns(); hideHint(); needs=true; click(); };
+  syncBtns(); hideHint(); showHint(); needs=true; click(); };
 document.getElementById('reset').onclick=()=>{ unlock(); reset(); click(); };
 
 window.addEventListener('resize',resize);

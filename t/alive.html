@@ -34,7 +34,7 @@
 </head>
 <body>
 <canvas id="cv"></canvas>
-<div class="title"><b>活了</b><span>随便画个东西，然后按下面那个按钮</span></div>
+<div class="title"><b>活了</b><span id="sub">随便画个东西，然后按下面那个按钮</span></div>
 <div class="count" id="count"></div>
 <div class="dock">
   <div class="hint" id="hint">✎ 用手指在纸上画一坨东西</div>
@@ -151,6 +151,12 @@ cv.addEventListener('pointermove',e=>{ if(drawing) strokeTo(e.clientX,e.clientY)
 cv.addEventListener('pointerup',()=>{drawing=false;lastP=null;});
 cv.addEventListener('pointercancel',()=>{drawing=false;lastP=null;});
 
+// Poking is the second-best thing in this toy, but it only ever lived in a
+// hint that fades two seconds after birth. Once something is alive, the
+// subtitle stops repeating the instruction you already followed and holds
+// the one action nothing else on screen tells you about.
+const SUB0='随便画个东西，然后按下面那个按钮', SUB1='戳一下它，它会踉跄一下';
+function setSub(s){ document.getElementById('sub').textContent=s; }
 let hintT=null;
 function setHint(s){ const h=document.getElementById('hint'); h.textContent=s; h.style.opacity=.55;
   if(hintT)clearTimeout(hintT); }
@@ -187,9 +193,13 @@ function birth(){
   //  sprouting from the middle of the body read as a bug, not as a joke.)
   if(valid.length){
     const deepest=Math.max(...valid.map(i=>low[i]));
+    // The band has to be measured against something the shape actually has.
+    // A long flat scribble is only a few pixels tall, so a ch-relative band
+    // rejects almost every column and all the legs bunch under one spot.
+    const tolBase=Math.max(ch,cw*0.10);
     let fallback=null;
     for(const band of [0.24,0.4,0.65,1.01]){
-      const cand=valid.filter(i=>low[i]>=deepest-ch*band);
+      const cand=valid.filter(i=>low[i]>=deepest-tolBase*band);
       if(cand.length<2) continue;
       if(!fallback) fallback=cand;
       // also want a stance wide enough to stand on, not all legs on one dangling tail
@@ -222,7 +232,10 @@ function birth(){
     anchors=[{ax:cw*0.35,ay:ch-1},{ax:cw*0.65,ay:ch-1}];
   }
 
-  const segL=Math.max(11,Math.min(46,bh*0.42));
+  // Leg length from height alone turns a long flat scribble into a bench:
+  // 260px of body on 18px of leg. A slender thing gets legs in proportion to
+  // how long it is instead, so it reads as a creature rather than furniture.
+  const segL=Math.max(11,Math.min(46,Math.max(bh*0.42,bw*0.26)));
   const stand=segL*2*0.8;
   const groundY=Math.min(y1/SD+stand*0.72, floorY());
   const v=(26+Math.random()*26);
@@ -262,8 +275,8 @@ function birth(){
   crs.push(c);
   skx.clearRect(0,0,sk.width,sk.height); inked=false; lastP=null;
   initAudio(); chirp();
-  updCount();
-  flashHint(crs.length>=MAXN?'满员了 · 戳一下它们试试':'再画一只，或者戳一下它');
+  updCount(); setSub(SUB1);
+  flashHint(crs.length>=MAXN?'满员了 · 戳一下它们试试':'戳一下它试试，或者再画一只');
   return c;
 }
 
@@ -396,7 +409,7 @@ document.getElementById('again').onclick=()=>{
 };
 document.getElementById('clr').onclick=()=>{
   crs=[]; skx.clearRect(0,0,sk.width,sk.height); inked=false; lastP=null;
-  updCount(); setHint('✎ 用手指在纸上画一坨东西');
+  updCount(); setSub(SUB0); setHint('✎ 用手指在纸上画一坨东西');
 };
 
 /* ---------- deterministic test hook ---------- */

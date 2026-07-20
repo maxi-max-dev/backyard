@@ -49,7 +49,7 @@
 <div class="dock">
   <div class="hint" id="hint">🖐 在皿里划一道，看它自己长开</div>
   <div class="bar">
-    <button data-m="0"><i class="d" style="background:#6b4526"></i>豹</button>
+    <button data-m="0"><i class="d" style="background:#6b4526"></i>波点</button>
     <button data-m="1"><i class="d" style="background:#2e211a"></i>斑马</button>
     <button data-m="2" class="on"><i class="d" style="background:#9c6b3c"></i>珊瑚</button>
     <button data-m="3"><i class="d" style="background:#4a3020"></i>分裂</button>
@@ -69,7 +69,10 @@ let Du=0.35, Dv=0.175;
 // Each pair was run to 12000+ iterations here and checked by eye. Do not nudge:
 // past k≈0.065 at low F the whole dish decays to nothing and never comes back.
 const MODES=[
-  {n:'豹',   F:0.030, k:0.062 },
+  // Named for what it actually makes: an even lattice of round dots. It was called
+  // 豹 once, but Gray-Scott at one length scale cannot do rosettes — the spots come
+  // out regular and unbroken, nothing like a leopard. Don't rename it back.
+  {n:'波点', F:0.030, k:0.062 },
   {n:'斑马', F:0.030, k:0.057 },
   {n:'珊瑚', F:0.055, k:0.062 },
   {n:'分裂', F:0.042, k:0.064 }
@@ -194,6 +197,13 @@ function lifeSupport(){
   return false;
 }
 
+/* ---------- opening: let the sparse stage breathe ---------- */
+// A few colonies alone on bare paper is the best-looking thing this toy does, and at
+// full speed it is over in about three seconds. After seeding, run at a third speed
+// for ~10s so the dish is worth sitting and watching. The first touch cancels it, so
+// anyone who came to draw never waits.
+const SLOW=600; let slow=0;
+
 /* ---------- adaptive quality ---------- */
 let ITER=10, BASE=10, ADAPT=true, times=[], ti=0, cool=0;
 function adapt(ms){
@@ -221,20 +231,23 @@ function simulate(){
   // dense dish into total collapse; the straight line between any two presets
   // stays inside living territory, so structures re-differentiate on the spot.
   if(ramp<1){ ramp=Math.min(1,ramp+1/90); curF=fromF+(MODES[mode].F-fromF)*ramp; curK=fromK+(MODES[mode].k-fromK)*ramp; }
-  for(let i=0;i<ITER;i++) iterate(curF,curK);
+  let it=ITER; if(slow>0){ slow--; it=3; }
+  for(let i=0;i<it;i++) iterate(curF,curK);
   if(++lifeTick>=30){ lifeTick=0; lifeSupport(); }
 }
 function frame(){
   const t0=performance.now();
   simulate(); draw();
-  adapt(performance.now()-t0);   // times our own work, not the compositor's
+  // A slowed frame does less work, so feeding it to adapt() would fake a fast machine.
+  if(slow<=0) adapt(performance.now()-t0);   // times our own work, not the compositor's
   requestAnimationFrame(frame);
 }
 
 /* ---------- input ---------- */
 cv.addEventListener('pointerdown',e=>{
   e.preventDefault(); try{cv.setPointerCapture(e.pointerId);}catch(_){}
-  down=true; const g=toGrid(e.clientX,e.clientY); if(g){px0=g[0]; py0=g[1];} pend=g; hideHint();
+  down=true; slow=0;   // came to draw, not to watch: back to full speed at once
+  const g=toGrid(e.clientX,e.clientY); if(g){px0=g[0]; py0=g[1];} pend=g; hideHint();
 });
 cv.addEventListener('pointermove',e=>{ if(!down) return;
   const g=toGrid(e.clientX,e.clientY);
@@ -252,14 +265,17 @@ btns.forEach(b=>b.addEventListener('click',()=>{
 document.getElementById('wash').addEventListener('click',()=>{
   // Seed generously: fronts spread from wherever they start, so a couple of specks
   // leave the dish nearly empty for ~20s. Eight-ish colonies repopulate in a third of that.
-  wipe(); blob(N>>1,N>>1,7); sprinkle(8); hideHint();
+  wipe(); blob(N>>1,N>>1,7); sprinkle(8); slow=SLOW; hideHint();
 });
 
 /* ---------- boot ---------- */
 alloc((window.innerWidth<560||window.innerHeight<560)?140:200);
-wipe(); blob(N>>1,N>>1,7); blob((N>>1)+14,(N>>1)-10,4); blob((N>>1)-16,(N>>1)+12,4);
+// Same generous seeding as 洗掉: scattered colonies on bare paper read far better than
+// one clump in the middle, and they are what the slow opening is there to show off.
+wipe(); blob(N>>1,N>>1,7); sprinkle(8);
 resize();
-for(let i=0;i<1600;i++) iterate(curF,curK); // arrive already growing
+for(let i=0;i<700;i++) iterate(curF,curK); // arrive already growing, still sparse
+slow=SLOW;
 requestAnimationFrame(frame);
 
 /* ---------- test hooks (headless lane runs at 1-4fps; step by hand) ---------- */
@@ -268,6 +284,7 @@ window.__adapt=(b)=>{ ADAPT=b; times=[]; ti=0; };
 window.__setIter=(n)=>{ ITER=BASE=n; };
 window.__diff=(du,dv)=>{ Du=du; Dv=dv; };
 window.__life=(b)=>{ LIFE=b; };
+window.__slow=(n)=>{ if(n!==undefined) slow=n; return slow; };
 window.__forceAdapt=(ms,n)=>{ ADAPT=true; for(let i=0;i<n;i++){ adapt(ms); } return {ITER:ITER,N:N}; };
 window.__save=()=>({u:U.slice(),v:V.slice()});
 window.__restore=(s)=>{ U.set(s.u); V.set(s.v); };

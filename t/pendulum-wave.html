@@ -71,6 +71,7 @@ let P=[];            // 摆
 let now=0;           // 仿真时钟（秒）
 let released=false, t0g=0, offPhase=false;
 let notesFired=0, lastNoteSim=-9;
+let popT=-99, lastPhase=0;   // 重聚那一刻的「啪」：popT=精确的重聚时刻
 
 const PENT=[0,2,4,7,9];
 function pentFreq(k){ return 220*Math.pow(2,(PENT[((k%5)+5)%5]+12*Math.floor(k/5))/12); }
@@ -145,6 +146,7 @@ function lastStrike(p){
 
 function pull(){
   t0g=now; released=true; offPhase=false;
+  popT=-99; lastPhase=0;
   for(const p of P){ p.amp=ampA; p.t0=now; p.noteK=0; p.grab=false; }
   warnEl.classList.remove('on');
   hideHint();
@@ -257,6 +259,16 @@ function draw(){
     rg.addColorStop(1,'rgba(120,160,255,0)');
     ctx.fillStyle=rg; ctx.fillRect(0,0,W,H);
   }
+  // 重聚那一刻的「啪」：瞬间起、0.5 秒落。align 只负责铺垫，pop 负责结算
+  let pop=0, popAge=-1;   // -1 = 还没重聚过，涟漪不许画
+  if(released&&popT>-9){ popAge=now-popT; pop=popAge<0?0:Math.exp(-popAge*4.6); }
+  if(pop>0.01){
+    const rg2=ctx.createRadialGradient(W/2,beamY+Lmax*0.5,10,W/2,beamY+Lmax*0.5,Math.max(W,H)*0.62);
+    rg2.addColorStop(0,'rgba(198,222,255,'+(0.34*pop)+')');
+    rg2.addColorStop(0.55,'rgba(130,168,255,'+(0.16*pop)+')');
+    rg2.addColorStop(1,'rgba(120,160,255,0)');
+    ctx.fillStyle=rg2; ctx.fillRect(0,0,W,H);
+  }
 
   // 横梁
   const bx=Math.max(10,x0-sp*0.8), bw=Math.min(W-20,sp*(N-1)+sp*1.6);
@@ -264,6 +276,14 @@ function draw(){
   ctx.fillRect(bx,beamY-7,bw,9);
   ctx.fillStyle='rgba(150,180,255,'+(0.22+0.25*align)+')';
   ctx.fillRect(bx,beamY-7,bw,2);
+  if(pop>0.01){   // 横梁被「敲」白一下，从上沿溢出一道光
+    ctx.fillStyle='rgba(228,240,255,'+(0.85*pop)+')';
+    ctx.fillRect(bx,beamY-8,bw,3);
+    const bgd=ctx.createLinearGradient(0,beamY-8-22*pop,0,beamY-6);
+    bgd.addColorStop(0,'rgba(170,200,255,0)');
+    bgd.addColorStop(1,'rgba(190,215,255,'+(0.30*pop)+')');
+    ctx.fillStyle=bgd; ctx.fillRect(bx,beamY-8-22*pop,bw,22*pop+2);
+  }
 
   // 线 + 球
   for(const p of P){
@@ -279,9 +299,9 @@ function draw(){
       flash=Math.exp(-age*5.5);
     }
     const hue=195+(p.i/Math.max(1,N-1))*135;
-    const r=ballR*(1+0.16*flash);
+    const r=ballR*(1+0.16*flash+0.22*pop);
     const gl=ctx.createRadialGradient(px,py,0,px,py,r*4.2);
-    gl.addColorStop(0,'hsla('+hue+',95%,72%,'+(0.30+0.42*flash+0.2*align)+')');
+    gl.addColorStop(0,'hsla('+hue+',95%,72%,'+(0.30+0.42*flash+0.2*align+0.45*pop)+')');
     gl.addColorStop(1,'hsla('+hue+',95%,60%,0)');
     ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(px,py,r*4.2,0,TWO); ctx.fill();
 
@@ -298,12 +318,19 @@ function draw(){
 
   // 极细进度条：暗示「快到什么时刻了」，不写字
   const px0=W*0.16, px1=W*0.84;
-  ctx.fillStyle='rgba(140,170,255,.13)';
+  ctx.fillStyle='rgba(140,170,255,'+(0.13+0.5*pop)+')';
   ctx.fillRect(px0,barY,px1-px0,1.5);
   if(released){
     ctx.fillStyle='rgba(170,200,255,'+(0.4+0.5*align)+')';
     ctx.fillRect(px0,barY,(px1-px0)*phase,1.5);
-    ctx.beginPath(); ctx.arc(px0+(px1-px0)*phase,barY+0.75,1.8+2.6*align,0,TWO);
+    const dx=px0+(px1-px0)*phase, dy=barY+0.75;
+    if(popAge>=0&&popAge<0.55){   // 进度点归零 = 从起点炸开一圈涟漪，0.55s 收干净
+      const rk=popAge/0.55;
+      ctx.strokeStyle='rgba(200,222,255,'+(0.6*(1-rk)*(1-rk))+')';
+      ctx.lineWidth=1.4+2.2*pop;
+      ctx.beginPath(); ctx.arc(px0,dy,5+rk*62,0,TWO); ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(dx,dy,1.8+2.6*align+3.4*pop,0,TWO);
     ctx.fillStyle='rgba(200,220,255,'+(0.6+0.4*align)+')'; ctx.fill();
   }
 }
@@ -397,7 +424,16 @@ document.querySelectorAll('.seg button').forEach(b=>{
 });
 
 // ---------- 主循环 ----------
-function step(dt){ now+=dt; schedule(); }
+function step(dt){
+  now+=dt;
+  if(released){
+    const f=((now-t0g)%T+T)%T, ph=f/T;
+    // 相位回绕 = 刚跨过第 20 秒。popT 减掉 f，拿到精确的重聚时刻（大 dt 也不飘）
+    if(ph<lastPhase-0.5) popT=now-f;
+    lastPhase=ph;
+  }
+  schedule();
+}
 let last=performance.now();
 function frame(ms){
   const dt=Math.min((ms-last)/1000,0.05); last=ms;
@@ -412,7 +448,9 @@ window.__state=()=>{
   const angs=P.map(angleOf);
   const xs=P.map(p=>ballPos(p)[0]);
   const f=released?(((now-t0g)%T+T)%T)/T:0;
+  const pAge=(released&&popT>-9)?now-popT:-1;
   return {N,released,now,phase:f,notesFired,offPhase,
+    popT,popAge:pAge,pop:pAge<0?0:Math.exp(-pAge*4.6),
     ampA,Lmax,sp,ballR,beamY,barY,W,H,
     angles:angs, xs, ys:P.map(p=>ballPos(p)[1]),
     spread:Math.max(...angs)-Math.min(...angs),

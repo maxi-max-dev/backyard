@@ -24,7 +24,11 @@
   .bar button{font:inherit;font-weight:700;font-size:13px;color:#3a2a2e;
     border:1px solid rgba(120,80,60,.25);background:rgba(255,255,255,.35);
     padding:8px 13px;border-radius:11px;cursor:pointer;white-space:nowrap}
-  .bar button.feed{background:linear-gradient(90deg,#ffc98a,#ffe3ab);border-color:transparent}
+  /* both modes are always on screen; the lit one is the mode you're in, so the
+     other one reads as "tap me to switch" instead of leaving you to guess */
+  .bar button.on{background:linear-gradient(90deg,#ffc98a,#ffe3ab);border-color:transparent}
+  .bar button:not(.on){opacity:.62}
+  .seg{display:flex;gap:7px;min-width:0}
   #snd{padding:8px 10px;margin-left:auto}
   #snd.on{background:rgba(120,80,60,.22)}
   .lab{font-size:11px;font-weight:700;opacity:.55;white-space:nowrap}
@@ -43,7 +47,10 @@
   <div class="hint" id="hint">🕊️ 按住不放，看它们炸开又合上</div>
   <div class="bar">
     <div class="row">
-      <button id="mode">🦅 吓它们</button>
+      <div class="seg">
+        <button id="mScare" class="on">🦅 吓它们</button>
+        <button id="mFeed">🌾 喂它们</button>
+      </div>
       <button id="snd">🔈</button>
     </div>
     <div class="row">
@@ -144,6 +151,9 @@ function setCount(n){
 // ---- pointer ----
 const ptr={x:-1e4,y:-1e4,on:false};
 let FEED=false, demoT=0, demoOn=true, avgSpd=SPD;
+// flock centre-of-mass velocity (previous frame) — used to damp the home spring
+let mvx=0, mvy=0;
+const HDMP=0.42;   // ~critical damping for the home spring; kills the slow slosh
 
 function step(dt){
   if(dt>1/30) dt=1/30;
@@ -163,7 +173,7 @@ function step(dt){
   // soft-wall margins: the bottom one clears the control dock (~130px tall) so the
   // flock never parks behind the UI on tall portrait screens
   const mgX=Math.min(W*0.20,110), mgT=Math.min(H*0.16,86), mgB=Math.min(H*0.34,150);
-  let spSum=0;
+  let spSum=0, mvxS=0, mvyS=0;
 
   for(let i=0;i<N;i++){
     const x=px[i], y=py[i], ivx=vx[i], ivy=vy[i];
@@ -206,8 +216,12 @@ function step(dt){
     // clamp flocking force
     const fm=Math.sqrt(fx*fx+fy*fy);
     if(fm>MAXF){ const s=MAXF/fm; fx*=s; fy*=s; }
-    // very weak pull home (no wrapping — wrapping tears the flock apart)
-    fx+=(cxC-x)*0.11; fy+=(cyC-y)*0.14;
+    // very weak pull home (no wrapping — wrapping tears the flock apart).
+    // The -mv term damps only the flock's *common* drift: once the birds condense
+    // into one coherent ball this spring is otherwise undamped and the ball slowly
+    // sloshes top<->bottom, parking on the title or the dock with half the sky empty.
+    // Individual swirling (velocity minus the flock mean) is untouched.
+    fx+=(cxC-x)*0.11-mvx*HDMP; fy+=(cyC-y)*0.14-mvy*HDMP;
     // soft walls
     if(x<mgX) fx+=(mgX-x)*4.0; else if(x>W-mgX) fx-=(x-(W-mgX))*4.0;
     if(y<mgT) fy+=(mgT-y)*4.0; else if(y>H-mgB) fy-=(y-(H-mgB))*4.0;
@@ -237,7 +251,7 @@ function step(dt){
     const cap=SPD*(1+1.15*burst);
     if(sp>cap){ nvx*=cap/sp; nvy*=cap/sp; sp=cap; }
     else if(sp<SPDMIN){ nvx*=SPDMIN/sp; nvy*=SPDMIN/sp; sp=SPDMIN; }
-    vx[i]=nvx; vy[i]=nvy;
+    vx[i]=nvx; vy[i]=nvy; mvxS+=nvx; mvyS+=nvy;
     let nx2=x+nvx*dt, ny2=y+nvy*dt;
     if(nx2<-40)nx2=-40; else if(nx2>W+40)nx2=W+40;
     if(ny2<-40)ny2=-40; else if(ny2>H+40)ny2=H+40;
@@ -251,6 +265,7 @@ function step(dt){
     if(wp[i]>1e6) wp[i]=0;
   }
   avgSpd=N?spSum/N:0;
+  mvx=N?mvxS/N:0; mvy=N?mvyS/N:0;
   if(gain) gain.gain.value=Math.max(0,Math.min(0.06,(avgSpd-SPDMIN)/260*0.06));
 }
 
@@ -325,17 +340,27 @@ requestAnimationFrame(frame);
 
 let hintGone=false;
 function hideHint(){ if(hintGone)return; hintGone=true; document.getElementById('hint').style.opacity=0; }
-cv.addEventListener('pointerdown',e=>{ e.preventDefault();
+// only the first finger down steers the flock — a thumb resting on the bezel
+// used to yank the whole vortex into the corner mid-gesture
+let pid=null;
+cv.addEventListener('pointerdown',e=>{ e.preventDefault(); if(pid!==null) return;
+  pid=e.pointerId;
   try{cv.setPointerCapture(e.pointerId);}catch(_){}
   ptr.x=e.clientX; ptr.y=e.clientY; ptr.on=true; demoOn=false; hideHint(); });
-cv.addEventListener('pointermove',e=>{ ptr.x=e.clientX; ptr.y=e.clientY; });
-cv.addEventListener('pointerup',()=>{ptr.on=false;});
-cv.addEventListener('pointercancel',()=>{ptr.on=false;});
+cv.addEventListener('pointermove',e=>{ if(e.pointerId!==pid) return;
+  ptr.x=e.clientX; ptr.y=e.clientY; });
+const release=e=>{ if(e.pointerId!==pid) return; pid=null; ptr.on=false; };
+cv.addEventListener('pointerup',release);
+cv.addEventListener('pointercancel',release);
 
-document.getElementById('mode').onclick=e=>{
-  FEED=!FEED; const b=e.currentTarget;
-  b.textContent=FEED?'🌾 喂它们':'🦅 吓它们'; b.classList.toggle('feed',FEED);
-};
+const bScare=document.getElementById('mScare'), bFeed=document.getElementById('mFeed');
+function setMode(f){ FEED=!!f;
+  bScare.classList.toggle('on',!FEED); bFeed.classList.toggle('on',FEED);
+  document.getElementById('hint').textContent=FEED
+    ? '🌾 按住不放，看它们卷成漩涡'
+    : '🕊️ 按住不放，看它们炸开又合上'; }
+bScare.onclick=()=>setMode(false);
+bFeed.onclick=()=>setMode(true);
 document.getElementById('snd').onclick=toggleSound;
 document.getElementById('cnt').oninput=e=>{ userSetCount=true; setCount(+e.target.value); };
 
@@ -349,7 +374,7 @@ window.__state=()=>{ let bad=0,inside=0,cx=0,cy=0,sp=0;
 window.__near=(x,y,r)=>{ let c=0; for(let i=0;i<N;i++){ const dx=px[i]-x,dy=py[i]-y;
   if(dx*dx+dy*dy<r*r)c++; } return c; };
 window.__ptr=(x,y,on)=>{ ptr.x=x;ptr.y=y;ptr.on=!!on; if(on)demoOn=false; };
-window.__mode=f=>{FEED=!!f;};
+window.__mode=f=>{setMode(f);};
 window.__setCount=setCount;
 })();
 </script>

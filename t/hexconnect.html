@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>连 · Hex</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#f6f1e7;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#5a4a3a;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:14px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:22px;font-weight:800;letter-spacing:4px;color:#e2502f}
+  .title span{display:block;font-size:12px;opacity:.65;margin-top:3px;font-weight:700;transition:opacity .35s}
+  .title.over span{opacity:0}
+  .dock{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:6;pointer-events:none;
+    display:flex;flex-direction:column;align-items:center;gap:8px;max-width:96vw}
+  .hint{font-size:13px;font-weight:700;opacity:.62;white-space:nowrap;text-align:center;
+    background:rgba(255,252,246,.7);padding:4px 12px;border-radius:9px}
+  .bar{pointer-events:auto;display:flex;gap:7px;flex-wrap:nowrap;justify-content:center;
+    background:rgba(255,253,248,.82);border:1px solid rgba(180,150,120,.28);padding:7px 9px;
+    border-radius:15px;backdrop-filter:blur(8px);box-shadow:0 6px 20px rgba(160,120,80,.16)}
+  .bar button{font:inherit;font-weight:800;font-size:13px;color:#6b5643;border:1px solid rgba(180,150,120,.3);
+    background:#fff;padding:9px 13px;border-radius:11px;cursor:pointer;white-space:nowrap;
+    box-shadow:0 2px 0 rgba(170,140,110,.18)}
+  .bar button:active{transform:translateY(1px);box-shadow:none}
+  .bar button#lv{background:linear-gradient(90deg,#ffb457,#ff7a45);color:#fff;border-color:transparent}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>连</b><span>把红色从左边连到右边就赢</span></div>
+<div class="dock">
+  <div class="hint" id="hint">点空格落红子 · 连通左右两条红边</div>
+  <div class="bar">
+    <button id="undo">↶ 悔棋</button>
+    <button id="again">↻ 重开</button>
+    <button id="lv">强度 · 随手</button>
+  </div>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const hintEl=document.getElementById('hint'), titleEl=document.querySelector('.title');
+const N=11, NC=N*N, RED=1, BLUE=2;
+// 边 k 在顶点 k 与 k+1 之间，外法线方向即 DIRS[k]
+const DIRS=[[1,-1],[1,0],[0,1],[-1,1],[-1,0],[0,-1]];
+const SQ3=Math.sqrt(3);
+
+// ---------- 邻居表 ----------
+const NB=new Int16Array(NC*6);
+for(let r=0;r<N;r++)for(let q=0;q<N;q++){const i=r*N+q;
+  for(let d=0;d<6;d++){const nq=q+DIRS[d][0], nr=r+DIRS[d][1];
+    NB[i*6+d]=(nq>=0&&nq<N&&nr>=0&&nr<N)?nr*N+nq:-1;}}
+
+// ---------- 并查集 ----------
+function find2(p,a){ while(p[a]!==a){ p[a]=p[p[a]]; a=p[a]; } return a; }
+function uni2(p,a,b){ a=find2(p,a); b=find2(p,b); if(a!==b) p[a]=b; }
+function rebuild(bd,p){
+  for(let i=0;i<NC+4;i++)p[i]=i;
+  for(let i=0;i<NC;i++){ const c=bd[i]; if(!c)continue; const q=i%N, r=(i/N)|0;
+    for(let d=0;d<3;d++){ const j=NB[i*6+d]; if(j>=0&&bd[j]===c) uni2(p,i,j); }
+    if(c===RED){ if(q===0)uni2(p,i,NC); if(q===N-1)uni2(p,i,NC+1); }
+    else { if(r===0)uni2(p,i,NC+2); if(r===N-1)uni2(p,i,NC+3); } }
+}
+const par=new Int16Array(NC+4), tpar=new Int16Array(NC+4);
+function redWon(p){ return find2(p,NC)===find2(p,NC+1); }
+function blueWon(p){ return find2(p,NC+2)===find2(p,NC+3); }
+
+// ---------- 局面 ----------
+let board=new Int8Array(NC), hist=[], phase='play', winner=0, level=0;
+const ROLLS=[800,5000,20000], LVN=['随手','认真','狠'];
+let beaten={}; try{ beaten=JSON.parse(localStorage.getItem('hex_beaten')||'{}'); }catch(e){ beaten={}; }
+
+function newGame(){
+  board.fill(0); hist=[]; phase='play'; winner=0;
+  rebuild(board,par); think=null; ripples.length=0;
+  pathCells=null; pathLit=0; flashT=0; flashSet.fill(0); hoverIdx=-1; hoverSet.fill(0);
+  titleEl.classList.remove('over');
+  setHint('点空格落红子 · 连通左右两条红边');
+}
+
+// ---------- 几何（15° 旋转，让菱形棋盘接近正方，手机上格子最大） ----------
+let W=0,H=0,dpr=1,scale=1,cells=[],bands=[],inr=10,boardTop=0,rotDeg=0;
+// 单位空间几何：整块棋盘按 deg 旋转后的顶点表 + 包围盒
+function layout(deg){
+  const t=deg*Math.PI/180, CS=Math.cos(t), SN=Math.sin(t), R=1/SQ3;
+  const uc=[], uv=[];
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(let r=0;r<N;r++)for(let q=0;q<N;q++){
+    const ux=q+r/2, uy=r*SQ3/2;
+    uc.push(ux*CS-uy*SN, ux*SN+uy*CS);
+    const vs=[];
+    for(let k=0;k<6;k++){ const a=(-90+60*k)*Math.PI/180;
+      const vx=ux+R*Math.cos(a), vy=uy+R*Math.sin(a);
+      const px=vx*CS-vy*SN, py=vx*SN+vy*CS;
+      vs.push(px,py);
+      if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py; }
+    uv.push(vs); }
+  return {uc,uv,x0,y0,x1,y1,w:x1-x0,h:y1-y0};
+}
+function buildGeom(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const top=Math.max(72,H*0.10), bot=112;
+  const availW=W-20, availH=Math.max(120,H-top-bot);
+  // 菱形棋盘：宽屏不转（经典 Hex 观感），窄屏转一点让格子最大。取格子最大的角度。
+  let L=null, best=-1;
+  for(let d=0;d<=30;d++){ const g=layout(d), s=Math.min(availW/g.w, availH/g.h);
+    if(s>best){ best=s; L=g; rotDeg=d; } }
+  const {uc,uv,x0,y0,x1,y1}=L;
+  scale=best;
+  const ox=W/2-((x0+x1)/2)*scale, oy=top+availH/2-((y0+y1)/2)*scale;
+  boardTop=oy+y0*scale;
+  inr=scale*0.5;
+  cells=[]; bands=[];
+  for(let i=0;i<NC;i++){
+    const q=i%N, r=(i/N)|0;
+    const v=new Float32Array(12);
+    for(let k=0;k<6;k++){ v[k*2]=uv[i][k*2]*scale+ox; v[k*2+1]=uv[i][k*2+1]*scale+oy; }
+    cells.push({q,r,cx:uc[i*2]*scale+ox,cy:uc[i*2+1]*scale+oy,v});
+    for(let k=0;k<6;k++){ if(NB[i*6+k]>=0)continue;
+      const nq=q+DIRS[k][0];
+      const col=(nq<0||nq>=N)?RED:BLUE;
+      const a=k, b=(k+1)%6;
+      bands.push({x1:uv[i][a*2]*scale+ox,y1:uv[i][a*2+1]*scale+oy,
+                  x2:uv[i][b*2]*scale+ox,y2:uv[i][b*2+1]*scale+oy,col}); }
+  }
+}
+window.addEventListener('resize',()=>{buildGeom();},{passive:true});
+
+function cellAt(px,py){
+  let best=-1,bd=1e9;
+  for(let i=0;i<NC;i++){ const c=cells[i]; const dx=px-c.cx, dy=py-c.cy; const d=dx*dx+dy*dy;
+    if(d<bd){bd=d;best=i;} }
+  return (bd<=(inr*1.2)*(inr*1.2))?best:-1;
+}
+
+// ---------- 声音 ----------
+let ac=null;
+function unlock(){ if(!ac){ try{ ac=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ac=null;} } if(ac&&ac.state==='suspended')ac.resume(); }
+function beep(f,t0,dur,vol,type){
+  if(!ac)return;
+  const o=ac.createOscillator(), g=ac.createGain();
+  o.type=type||'triangle'; o.frequency.value=f;
+  const t=ac.currentTime+t0;
+  g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(vol,t+0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t+dur+0.02);
+}
+
+// ---------- 涟漪 ----------
+const ripples=[];
+function addRipple(i,col){ const c=cells[i]; ripples.push({x:c.cx,y:c.cy,t:0,col}); }
+
+// ---------- 高亮 ----------
+const hoverSet=new Uint8Array(NC), flashSet=new Uint8Array(NC);
+let hoverIdx=-1, flashT=0, ghost=-1;
+function compOf(i,out){ const root=find2(par,i), c=board[i];
+  for(let j=0;j<NC;j++) if(board[j]===c&&find2(par,j)===root) out[j]=1; }
+function updHover(i){
+  hoverIdx=i; hoverSet.fill(0); ghost=-1;
+  if(i<0||phase!=='play')return;
+  if(board[i]) compOf(i,hoverSet);
+  else{ ghost=i;
+    for(let d=0;d<6;d++){ const j=NB[i*6+d]; if(j>=0&&board[j]===RED) compOf(j,hoverSet); }
+    hoverSet[i]=1; }   // 幽灵格自己也进高亮集，否则「这一手把两块接起来」画不出那根线
+}
+// 高亮用的颜色：幽灵格按红子算，这样它能和两侧的红块连成一条线
+function hcol(i){ return i===ghost?RED:board[i]; }
+function setFlash(i){ flashSet.fill(0); compOf(i,flashSet); flashT=1; }
+
+// ---------- 落子 ----------
+function place(i,c){
+  board[i]=c; hist.push(i); rebuild(board,par);
+  addRipple(i,c); setFlash(i);
+  beep(c===RED?540:392,0,0.16,0.18,'triangle');
+  if(c===RED&&redWon(par)) endGame(RED);
+  else if(c===BLUE&&blueWon(par)) endGame(BLUE);
+}
+function endGame(w){
+  phase='over'; winner=w; pathCells=findPath(w); pathLit=0; pathT=0;
+  titleEl.classList.add('over');   // 窄屏上胜利横幅会压到副标题，让副标题先退场
+  if(w===RED){ beep(523,0.05,0.3,0.2); beep(659,0.22,0.3,0.2); beep(784,0.39,0.5,0.22);
+    if(!beaten[level]){ beaten[level]=1; try{localStorage.setItem('hex_beaten',JSON.stringify(beaten));}catch(e){} }
+    updLvBtn();
+    setHint(level<2?('赢了！要不要试试「'+LVN[level+1]+'」'):'赢了「狠」· 点棋盘再来一局');
+  } else { beep(311,0.05,0.35,0.15,'sine'); beep(233,0.28,0.5,0.13,'sine');
+    setHint('蓝色连通了上下 · 悔棋能退两步再试'); }
+}
+function findPath(c){
+  const prev=new Int16Array(NC).fill(-1), qq=[];
+  for(let i=0;i<NC;i++){ if(board[i]!==c)continue; const q=i%N,r=(i/N)|0;
+    if((c===RED&&q===0)||(c===BLUE&&r===0)){ prev[i]=i; qq.push(i); } }
+  let head=0;
+  while(head<qq.length){ const i=qq[head++]; const q=i%N,r=(i/N)|0;
+    if((c===RED&&q===N-1)||(c===BLUE&&r===N-1)){
+      const path=[]; let k=i; while(prev[k]!==k){ path.push(k); k=prev[k]; } path.push(k);
+      return path.reverse(); }
+    for(let d=0;d<6;d++){ const j=NB[i*6+d]; if(j>=0&&board[j]===c&&prev[j]<0){ prev[j]=i; qq.push(j); } } }
+  return [];
+}
+function undo(){
+  if(!hist.length)return;
+  think=null;
+  const n=(hist.length>=2&&board[hist[hist.length-1]]===BLUE)?2:1;
+  for(let k=0;k<n;k++){ const i=hist.pop(); if(i!==undefined) board[i]=0; }
+  rebuild(board,par); phase='play'; winner=0; pathCells=null; flashSet.fill(0); flashT=0;
+  titleEl.classList.remove('over');
+  updHover(hoverIdx);
+  beep(196,0,0.1,0.1,'sine');
+  setHint(hist.length?'退回来了 · 换一步试试':'点空格落红子 · 连通左右两条红边');
+}
+function setHint(t){ hintEl.textContent=t; }
+
+// ---------- rollout ----------
+const tmp=new Int8Array(NC), buf=new Int16Array(NC), rpar=new Int16Array(NC+2);
+function rollout(bd,toMove){
+  let n=0;
+  for(let i=0;i<NC;i++){ tmp[i]=bd[i]; if(!bd[i]) buf[n++]=i; }
+  for(let i=n-1;i>0;i--){ const j=(Math.random()*(i+1))|0; const t=buf[i]; buf[i]=buf[j]; buf[j]=t; }
+  let c=toMove;
+  for(let k=0;k<n;k++){ tmp[buf[k]]=c; c=3-c; }
+  const p=rpar;
+  for(let i=0;i<NC+2;i++)p[i]=i;
+  for(let i=0;i<NC;i++){ if(tmp[i]!==RED)continue; const q=i%N;
+    for(let d=0;d<3;d++){ const j=NB[i*6+d]; if(j>=0&&tmp[j]===RED) uni2(p,i,j); }
+    if(q===0)uni2(p,i,NC); else if(q===N-1)uni2(p,i,NC+1); }
+  return find2(p,NC)===find2(p,NC+1);
+}
+
+// ---------- UCT ----------
+const work=new Int8Array(NC), path=[];
+function empties(bd){ const a=[]; for(let i=0;i<NC;i++) if(!bd[i]) a.push(i); return a; }
+let think=null;
+function uctIter(root,rootTurn){
+  let node=root, turn=rootTurn, depth=0, pl=1; path[0]=root;
+  work.set(board);
+  while(true){
+    if(node.un===null){
+      if(node.n>=2&&depth<40){ node.un=empties(work); node.ch=[]; } else break; }
+    if(node.un.length){
+      const k=(Math.random()*node.un.length)|0, mv=node.un[k];
+      node.un[k]=node.un[node.un.length-1]; node.un.pop();
+      const ch={mv,n:0,w:0,ch:null,un:null};
+      node.ch.push(ch); node=ch; work[mv]=turn; turn=3-turn; depth++; path[pl++]=node; break; }
+    if(!node.ch||!node.ch.length) break;
+    let best=null,bv=-1; const lg=Math.log(node.n+1);
+    for(let z=0;z<node.ch.length;z++){ const c=node.ch[z];
+      const v=c.n? c.w/c.n+1.3*Math.sqrt(lg/c.n) : 1e9;
+      if(v>bv){bv=v;best=c;} }
+    node=best; work[node.mv]=turn; turn=3-turn; depth++; path[pl++]=node;
+  }
+  const winC=rollout(work,turn)?RED:BLUE;
+  root.n++;
+  for(let d=1;d<pl;d++){ const nd=path[d]; nd.n++;
+    if(((d&1)?rootTurn:3-rootTurn)===winC) nd.w++; }
+}
+// 立即取胜 / 挡对手一步胜（仅「认真」「狠」用）
+function tactical(me){
+  const opp=3-me;
+  for(const side of [me,opp]){
+    for(let i=0;i<NC;i++){ if(board[i])continue;
+      board[i]=side; rebuild(board,tpar);
+      const w=side===RED?redWon(tpar):blueWon(tpar);
+      board[i]=0;
+      if(w)return i; } }
+  return -1;
+}
+function aiStart(){
+  phase='think'; setHint('AI 在想…');
+  const forced=level>0?tactical(BLUE):-1;
+  if(forced>=0){ think={forced,done:0,budget:0,root:null,wait:0}; return; }
+  think={forced:-1,done:0,budget:ROLLS[level],root:{mv:-1,n:0,w:0,ch:[],un:empties(board)},wait:0};
+}
+function runSearch(ms){
+  if(!think||think.forced>=0)return;
+  const t0=performance.now();
+  while(think.done<think.budget){
+    uctIter(think.root,BLUE); think.done++;
+    if((think.done&31)===0 && performance.now()-t0>=ms) return;
+  }
+}
+function aiCommit(){
+  let mv=think.forced;
+  if(mv<0){ let bn=-1; const ch=think.root.ch;
+    for(let z=0;z<ch.length;z++) if(ch[z].n>bn){bn=ch[z].n;mv=ch[z].mv;}
+    if(mv<0||mv===undefined){ const e=empties(board); mv=e.length?e[(Math.random()*e.length)|0]:-1; } }
+  think=null;
+  if(mv>=0){ place(mv,BLUE);
+    // 提示只说规则，绝不教「桥」——那一手得让他自己被断出来
+    if(phase!=='over'){ phase='play'; setHint('轮到你 · 红子要连左右两条红边'); } }
+  else { phase='play'; }
+  updHover(hoverIdx);
+}
+
+// ---------- 更新 ----------
+let pathCells=null, pathLit=0, pathT=0, breathe=0;
+function update(dt){
+  breathe+=dt;
+  for(let i=ripples.length-1;i>=0;i--){ ripples[i].t+=dt; if(ripples[i].t>620) ripples.splice(i,1); }
+  if(flashT>0) flashT=Math.max(0,flashT-dt/900);
+  if(phase==='think'){
+    think.wait+=dt;
+    runSearch(8);
+    if(think.done>=think.budget && think.wait>=340) aiCommit();
+  }
+  if(phase==='over'&&pathCells){ pathT+=dt; while(pathT>65&&pathLit<pathCells.length){ pathT-=65; pathLit++; } }
+}
+
+// ---------- 绘制 ----------
+function hexPath(v){ ctx.beginPath(); ctx.moveTo(v[0],v[1]);
+  for(let k=1;k<6;k++)ctx.lineTo(v[k*2],v[k*2+1]); ctx.closePath(); }
+const RC='#ef4a2b', BC='#1a9fbe';
+function stone(x,y,r,c,a){
+  const g=ctx.createRadialGradient(x-r*0.32,y-r*0.36,r*0.1,x,y,r*1.05);
+  if(c===RED){ g.addColorStop(0,'#ffb08a'); g.addColorStop(.45,'#f9663d'); g.addColorStop(1,'#d3341c'); }
+  else { g.addColorStop(0,'#8fe6f2'); g.addColorStop(.45,'#2ab8d4'); g.addColorStop(1,'#0f7ea0'); }
+  ctx.globalAlpha=a===undefined?1:a;
+  ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fillStyle=g; ctx.fill();
+  ctx.globalAlpha=1;
+}
+function draw(){
+  ctx.fillStyle='#f6f1e7'; ctx.fillRect(0,0,W,H);
+  const litSet=(phase==='over'&&pathCells)?pathCells.slice(0,pathLit):null;
+  // 格子
+  for(let i=0;i<NC;i++){ const c=cells[i]; hexPath(c.v);
+    ctx.fillStyle=board[i]?'#fff9ee':'#fffdf7'; ctx.fill();
+    ctx.lineWidth=Math.max(1,scale*0.045); ctx.strokeStyle='rgba(176,150,118,.35)'; ctx.stroke(); }
+  // 边界粗带
+  ctx.lineCap='round'; ctx.lineWidth=Math.max(3,scale*0.19);
+  for(const b of bands){ ctx.strokeStyle=b.col===RED?RC:BC; ctx.globalAlpha=.9;
+    ctx.beginPath(); ctx.moveTo(b.x1,b.y1); ctx.lineTo(b.x2,b.y2); ctx.stroke(); }
+  ctx.globalAlpha=1; ctx.lineCap='butt';
+  // 连通高亮（悬停 / 落子闪烁）：整块分量一起亮，并在相邻子之间连线
+  // ——「连起来了」必须一眼可见，这是整个玩具的命门
+  const pulse=0.5+0.5*Math.sin(breathe/170);
+  const amt=new Float32Array(NC); let anyHi=false;
+  for(let i=0;i<NC;i++){
+    const hv=hoverSet[i], fl=flashSet[i]?flashT:0;
+    const a=Math.max(hv?0.30+0.22*pulse:0, fl*0.60);
+    if(a>0){ amt[i]=a; anyHi=true; }
+  }
+  if(anyHi){
+    for(let i=0;i<NC;i++){ if(!amt[i])continue; const c=cells[i], a=amt[i];
+      hexPath(c.v); ctx.fillStyle=(hcol(i)===BLUE?'rgba(26,159,190,':'rgba(239,74,43,')+a.toFixed(3)+')'; ctx.fill();
+      ctx.lineWidth=Math.max(2,scale*0.085);
+      ctx.strokeStyle=(hcol(i)===BLUE?'rgba(26,159,190,':'rgba(239,74,43,')+Math.min(1,a*1.9).toFixed(3)+')'; ctx.stroke(); }
+    ctx.lineCap='round'; ctx.lineWidth=Math.max(3,scale*0.16);
+    for(let i=0;i<NC;i++){ if(!amt[i]||!hcol(i))continue;
+      for(let d=0;d<3;d++){ const j=NB[i*6+d];
+        if(j<0||!amt[j]||hcol(j)!==hcol(i))continue;
+        ctx.strokeStyle=(hcol(i)===BLUE?'rgba(26,159,190,':'rgba(239,74,43,')+Math.min(1,Math.min(amt[i],amt[j])*1.6).toFixed(3)+')';
+        ctx.beginPath(); ctx.moveTo(cells[i].cx,cells[i].cy); ctx.lineTo(cells[j].cx,cells[j].cy); ctx.stroke(); } }
+    ctx.lineCap='butt';
+  }
+  // 棋子
+  const sr=inr*0.74;
+  for(let i=0;i<NC;i++){ if(!board[i])continue; const c=cells[i]; stone(c.cx,c.cy,sr,board[i]); }
+  // 幽灵预览
+  if(ghost>=0&&phase==='play'&&!board[ghost]){ const c=cells[ghost]; stone(c.cx,c.cy,sr*0.82,RED,0.3); }
+  // 涟漪
+  for(const rp of ripples){ const k=rp.t/620, r=inr*(0.5+k*2.0);
+    ctx.beginPath(); ctx.arc(rp.x,rp.y,r,0,7);
+    ctx.lineWidth=Math.max(1.5,scale*0.09*(1-k));
+    ctx.strokeStyle=(rp.col===RED?'rgba(239,74,43,':'rgba(26,159,190,')+(0.55*(1-k)).toFixed(3)+')'; ctx.stroke(); }
+  // 胜路点亮：先把全场压暗，再把那条路整条烧亮（输了也放，看清自己是怎么被连穿的）
+  if(litSet&&litSet.length){
+    ctx.fillStyle='rgba(246,241,231,.72)'; ctx.fillRect(0,0,W,H);
+    ctx.lineJoin='round';
+    for(let z=0;z<litSet.length;z++){ const c=cells[litSet[z]];
+      hexPath(c.v);
+      ctx.fillStyle=winner===RED?'rgba(255,214,180,.95)':'rgba(186,238,248,.95)'; ctx.fill();
+      ctx.lineWidth=Math.max(2,scale*0.08);
+      ctx.strokeStyle=winner===RED?RC:BC; ctx.stroke(); }
+    // 相邻两格之间连一条粗线，把「一条路」画实
+    ctx.lineCap='round'; ctx.lineWidth=Math.max(4,scale*0.22);
+    ctx.strokeStyle=winner===RED?'rgba(239,74,43,.55)':'rgba(26,159,190,.55)';
+    ctx.beginPath();
+    for(let z=0;z<litSet.length;z++){ const c=cells[litSet[z]];
+      if(z===0)ctx.moveTo(c.cx,c.cy); else ctx.lineTo(c.cx,c.cy); }
+    ctx.stroke(); ctx.lineCap='butt';
+    for(let z=0;z<litSet.length;z++){ const c=cells[litSet[z]];
+      const head=z===litSet.length-1;
+      if(head){ ctx.beginPath(); ctx.arc(c.cx,c.cy,sr*1.7,0,7);
+        ctx.fillStyle=winner===RED?'rgba(255,150,90,.35)':'rgba(90,215,240,.35)'; ctx.fill(); }
+      stone(c.cx,c.cy,sr*(head?1.16:1.06),winner);
+      ctx.beginPath(); ctx.arc(c.cx,c.cy,sr*(head?1.16:1.06),0,7);
+      ctx.lineWidth=2.6; ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.stroke(); } }
+  // 思考呼吸点
+  if(phase==='think'){ const y=Math.max(58,boardTop-16);
+    for(let k=0;k<3;k++){ const p=0.35+0.65*(0.5+0.5*Math.sin(breathe/230-k*0.7));
+      ctx.beginPath(); ctx.arc(W/2+(k-1)*15,y,3.6*p+1.4,0,7);
+      ctx.fillStyle='rgba(26,159,190,'+(0.3+0.5*p).toFixed(2)+')'; ctx.fill(); } }
+  // 结束提示
+  if(phase==='over'&&pathLit>=(pathCells?pathCells.length:0)){
+    ctx.textAlign='center'; ctx.font='800 '+Math.round(Math.min(34,W*0.075))+'px -apple-system,sans-serif';
+    ctx.fillStyle=winner===RED?'#e2502f':'#0f7ea0';
+    ctx.fillText(winner===RED?'连上了！':'蓝色赢了', W/2, Math.max(56,boardTop-22));
+    ctx.textAlign='left'; }
+}
+
+// ---------- 主循环 ----------
+let last=0;
+function frame(now){ const dt=last?Math.min(50,now-last):16.7; last=now; update(dt); draw(); requestAnimationFrame(frame); }
+
+// ---------- 输入（只认第一根手指） ----------
+let pid=null;
+function pos(e){ return [e.clientX,e.clientY]; }
+cv.addEventListener('pointerdown',e=>{
+  if(pid!==null&&e.pointerId!==pid)return;
+  pid=e.pointerId; e.preventDefault(); unlock();
+  const [x,y]=pos(e);
+  if(phase==='over'){
+    if(pathCells&&pathLit<pathCells.length){ pathLit=pathCells.length; return; }
+    newGame(); return; }
+  if(phase!=='play')return;
+  const i=cellAt(x,y);
+  if(i<0||board[i])return;
+  place(i,RED); updHover(-1);
+  if(phase!=='over') aiStart();
+},{passive:false});
+cv.addEventListener('pointermove',e=>{
+  if(e.pointerType==='touch')return;
+  const [x,y]=pos(e); const i=cellAt(x,y);
+  if(i!==hoverIdx) updHover(i);
+},{passive:true});
+cv.addEventListener('pointerup',e=>{ if(e.pointerId===pid)pid=null; });
+cv.addEventListener('pointercancel',e=>{ if(e.pointerId===pid)pid=null; });
+cv.addEventListener('pointerleave',()=>updHover(-1));
+
+document.getElementById('undo').onclick=()=>{ unlock(); undo(); };
+document.getElementById('again').onclick=()=>{ unlock(); newGame(); };
+const lvBtn=document.getElementById('lv');
+function updLvBtn(){ lvBtn.textContent='强度 · '+LVN[level]+(beaten[level]?' ✓':''); }
+lvBtn.onclick=()=>{ unlock(); level=(level+1)%3; updLvBtn();
+  setHint('下一手起，AI 用「'+LVN[level]+'」'); };
+updLvBtn();
+
+// ---------- 测试钩子 ----------
+window.__tick=(n)=>{ for(let k=0;k<(n||1);k++) update(16.7); draw(); };
+window.__aiFinish=()=>{ if(think){ runSearch(1e9); think.wait=1e6; update(0); } };
+window.__click=(q,r)=>{ const c=cells[r*N+q];
+  cv.dispatchEvent(new PointerEvent('pointerdown',{pointerId:1,clientX:c.cx,clientY:c.cy,bubbles:true,cancelable:true}));
+  cv.dispatchEvent(new PointerEvent('pointerup',{pointerId:1,clientX:c.cx,clientY:c.cy,bubbles:true})); };
+window.__hover=(q,r)=>{ const c=cells[r*N+q];
+  cv.dispatchEvent(new PointerEvent('pointermove',{pointerId:1,pointerType:'mouse',clientX:c.cx,clientY:c.cy,bubbles:true})); };
+window.__state=()=>{ let red=0,blue=0,nan=0;
+  for(let i=0;i<NC;i++){ if(board[i]===RED)red++; else if(board[i]===BLUE)blue++; }
+  for(const c of cells) if(!isFinite(c.cx)||!isFinite(c.cy))nan++;
+  return {phase,winner,red,blue,moves:hist.length,level,
+    hover:hoverSet.reduce((a,b)=>a+b,0), flash:flashSet.reduce((a,b)=>a+b,0),
+    pathLen:pathCells?pathCells.length:0, pathLit, nan, scale:+scale.toFixed(2), rotDeg,
+    boardW:+(cells[NC-1].cx-cells[0].cx).toFixed(1), hint:hintEl.textContent}; };
+window.__setLevel=(l)=>{ level=l; updLvBtn(); };
+window.__cells=()=>cells.map(c=>[+c.cx.toFixed(1),+c.cy.toFixed(1)]);
+window.__board=()=>Array.from(board);
+
+buildGeom(); newGame(); requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

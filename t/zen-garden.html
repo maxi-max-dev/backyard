@@ -366,6 +366,10 @@ function place(x,y,anim){
   hideHint();
 }
 function emptyAt(x,y){ return field(x,y).d>Math.max(14,S*0.03); }
+// A long press only plants a stone where a whole stone actually fits. The biggest
+// stone is 0.088*S across, so anything closer than that to a border would be born
+// half off-screen -- which is exactly what a thumb parked on the bezel produced.
+function inField(x,y){ const m=S*0.09; return x>m&&x<W-m&&y>m&&y<H-m; }
 
 cv.addEventListener('pointerdown',e=>{
   e.preventDefault();
@@ -373,7 +377,16 @@ cv.addEventListener('pointerdown',e=>{
   // while the other hand draws) re-seeded the stroke at its own position, and the
   // next move of the FIRST finger was measured from there -- tearing a rake line
   // clean across the garden.
-  if(down) return;
+  // But "the first pointer" is not the same as "the finger that is drawing". The
+  // ordinary way to hold a phone parks a thumb on the bezel BEFORE the other hand
+  // starts, and that parked thumb used to own the garden: every stroke from the real
+  // finger was dropped on the floor and nothing could be raked at all. So a pointer
+  // that has not moved yet hands the garden over to one that arrives after it; a
+  // pointer that is genuinely mid-rake keeps it and the newcomer is ignored.
+  if(down){
+    if(moved>8) return;
+    clearTimeout(holdTimer); clearLive(); stroke=null;
+  }
   activeId=e.pointerId;
   try{cv.setPointerCapture(e.pointerId);}catch(err){}
   audio(); down=true; downX=e.clientX; downY=e.clientY; moved=0; lastT=performance.now();
@@ -381,7 +394,7 @@ cv.addEventListener('pointerdown',e=>{
   clearTimeout(holdTimer);
   holdTimer=setTimeout(()=>{
     if(!down||moved>8) return;
-    if(emptyAt(downX,downY)){ clearLive(); stroke=null; place(downX,downY,true); }
+    if(inField(downX,downY)&&emptyAt(downX,downY)){ clearLive(); stroke=null; place(downX,downY,true); }
   },500);
 });
 cv.addEventListener('pointermove',e=>{

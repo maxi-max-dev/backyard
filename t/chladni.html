@@ -27,6 +27,7 @@
   .bar{pointer-events:auto;width:100%;
     background:rgba(24,27,32,.78);border:1px solid rgba(190,205,220,.14);
     padding:11px 15px 13px;border-radius:17px;backdrop-filter:blur(10px);box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  .grp+.grp{margin-top:13px}
   .row{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px}
   .row .lab{font-size:12px;font-weight:800;letter-spacing:3px;opacity:.62}
   .row .val{font-size:12px;font-weight:700;opacity:.45;font-variant-numeric:tabular-nums}
@@ -49,10 +50,16 @@
 <div class="title"><b>声之沙</b><span>拖一下，看看声音长什么样</span></div>
 <button id="mute">🔊</button>
 <div class="dock">
-  <div class="hint" id="hint">👆 横向拖 = 换音，上下拖 = 震得更狠</div>
+  <div class="hint" id="hint">👆 拖 = 换音 + 加力，点一下 = 撒把沙</div>
   <div class="bar">
-    <div class="row"><span class="lab">音高</span><span class="val" id="val">—</span></div>
-    <input type="range" id="pitch" min="0" max="11" step="1" value="2">
+    <div class="grp">
+      <div class="row"><span class="lab">音高</span><span class="val" id="val">—</span></div>
+      <input type="range" id="pitch" min="0" max="11" step="1" value="2">
+    </div>
+    <div class="grp">
+      <div class="row"><span class="lab">震感</span><span class="val" id="dval">静</span></div>
+      <input type="range" id="drive" min="0" max="100" step="1" value="0">
+    </div>
   </div>
 </div>
 <script>
@@ -60,6 +67,7 @@
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d',{alpha:false});
 const hintEl=document.getElementById('hint'), valEl=document.getElementById('val');
 const pitchEl=document.getElementById('pitch'), muteEl=document.getElementById('mute');
+const driveEl=document.getElementById('drive'), dvalEl=document.getElementById('dval');
 
 // ---- 人工挑选过的 (n,m) 阶梯，按 n²+m² 排序 ----
 const MODES=[[1,2],[1,3],[2,3],[1,4],[2,4],[3,4],[1,5],[2,5],[3,5],[4,5],[3,6],[5,6]];
@@ -71,7 +79,19 @@ const MOBILE=Math.min(window.innerWidth,window.innerHeight)<560;
 const N0=MOBILE?3500:7000, NMAX=Math.round(N0*1.7);
 const px=new Float32Array(NMAX), py=new Float32Array(NMAX);
 let count=0;
-function sprinkle(k){ for(let i=0;i<k&&count<NMAX;i++){ px[count]=Math.random(); py[count]=Math.random(); count++; } }
+// u,v 给了就把新沙撒在手指周围的一小块圆盘里（点一下要看得见），不给就满板随机
+const SPR_R=0.075;
+function sprinkle(k,u,v){
+  for(let i=0;i<k&&count<NMAX;i++){
+    if(u===undefined){ px[count]=Math.random(); py[count]=Math.random(); }
+    else{
+      const a=Math.random()*Math.PI*2, r=SPR_R*Math.sqrt(Math.random());
+      px[count]=Math.min(1,Math.max(0,u+Math.cos(a)*r));
+      py[count]=Math.min(1,Math.max(0,v+Math.sin(a)*r));
+    }
+    count++;
+  }
+}
 sprinkle(N0);
 
 // ---- 布局：canvas 就是那块板 ----
@@ -84,11 +104,11 @@ function layout(){
   const dockEl=document.querySelector('.dock');
   const bandTop=mob?70:72, bandBot=H-((dockEl?dockEl.offsetHeight:112)+28);
   const band=Math.max(140,bandBot-bandTop);
-  side=Math.min(mob?W*0.88:W*0.56, Math.max(120,band-36), 700);
+  side=Math.min(mob?W*0.94:W*0.56, Math.max(120,band-36), 700);
   side=Math.max(120,side);
   const left=(W-side)/2;
-  // 手机竖屏：居中偏上，下半屏留给手指
-  let top=bandTop+(band-side)*(mob?0.34:0.5);
+  // 板是正方的，竖屏必然有富余高度 —— 居中摊开，别把空白全堆在板子底下
+  let top=bandTop+(band-side)*0.5;
   // side 有下限，极矮视口（如 568×320 横屏）下它可能比整条带子还高 →
   // 先往上顶，别压住 hint 和滑块；再兜住上沿，别压住标题
   top=Math.max(bandTop-14, Math.min(top, bandBot-side));
@@ -114,7 +134,9 @@ let cur=2, prev=2, tr=1;        // tr: 0→1 新旧位移场插值
 const TRT=0.45, ANT=0.8;
 let anneal=0;                   // 退火剩余秒数
 let drive=0.55, target=0.55;    // 抖动强度
+let hold=0.045;                 // 松手后停在哪个强度 = 「震感」滑块，和音高互不干扰
 let holding=false;
+let ping=null;                  // 点一下之后的那圈涟漪 {u,v,t}
 const PI=Math.PI;
 
 function setMode(i,fromSlider){
@@ -203,6 +225,19 @@ function draw(dt){
     d[p+2]=d[p+2]+(241-d[p+2])*al;
   }
   ctx.putImageData(img,0,0);
+  // 点一下的落点涟漪：新沙本身已经是一团亮斑，再补一圈扩散的环，手指下发生了事情就藏不住了
+  if(ping){
+    ping.t+=dt;
+    const p=ping.t/0.5;
+    if(p>=1) ping=null;
+    else{
+      ctx.strokeStyle='rgba(246,248,241,'+(0.5*(1-p)*(1-p))+')';
+      ctx.lineWidth=Math.max(1,R*0.007);
+      ctx.beginPath();
+      ctx.arc(ping.u*R,ping.v*R,R*(SPR_R*0.5+0.13*p),0,6.2832);
+      ctx.stroke();
+    }
+  }
 }
 
 let last=performance.now();
@@ -266,20 +301,31 @@ cv.addEventListener('pointermove',e=>{
 function release(){
   activeId=null;
   if(!holding)return; holding=false;
-  target=0.045;                                      // 松手：静静停在节线上
+  target=hold;                                       // 松手：回到「震感」滑块定的那档
 }
 cv.addEventListener('pointerup',e=>{
   if(e.pointerId!==activeId)return;
   // 点一下 = 再撒一把沙。新沙本来就落在随机位置，会自己往节线上跑，
   // 不要顺手触发退火——那会把已经停稳、用户正准备截图的沙又抖散。
-  if(holding&&moved<7) sprinkle(280);
+  if(holding&&moved<7){ const {u,v}=fromEvent(e); sprinkle(280,u,v); ping={u,v,t:0}; }
   release();
 });
 cv.addEventListener('pointercancel',e=>{if(e.pointerId===activeId)release();});
 cv.addEventListener('pointerleave',e=>{if(holding&&e.pointerId===activeId)release();});
 
 pitchEl.addEventListener('input',()=>{ hideHint(); audioInit(); if(AC&&AC.state==='suspended')AC.resume();
-  setMode(+pitchEl.value,true); target=Math.max(target,0.5); setTimeout(()=>{if(!holding)target=0.045;},900); });
+  setMode(+pitchEl.value,true); target=Math.max(target,0.5); setTimeout(()=>{if(!holding)target=hold;},900); });
+
+// 「震感」滑块：只管震多狠，一个字都不碰音高 —— 想停在喜欢的图形上单调力度就靠它
+function readDrive(){
+  const s=+driveEl.value/100;
+  hold=0.045+0.955*s;
+  dvalEl.textContent=s===0?'静':Math.round(s*100)+'%';
+  if(!holding) target=hold;
+}
+driveEl.addEventListener('input',()=>{ hideHint(); audioInit();
+  if(AC&&AC.state==='suspended')AC.resume(); readDrive(); });
+readDrive();
 
 // ---- 手动步进钩子（无头验收用）----
 // 每步都 draw，才和真实 rAF 一致（只在末尾 draw 会留下没衰减掉的残影，验收会被骗）
