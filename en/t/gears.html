@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Gears</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#eef1f5;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#3d4655;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:1px;text-shadow:0 1px 0 rgba(255,255,255,.7)}
+  .title span{display:block;font-size:12px;opacity:.6;margin-top:2px;font-weight:600}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;
+    background:rgba(255,255,255,.8);border:1px solid rgba(90,110,130,.2);padding:8px;border-radius:15px;backdrop-filter:blur(10px);box-shadow:0 8px 24px rgba(80,100,130,.18)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#3d4655;border:none;background:#fff;padding:9px 13px;border-radius:11px;cursor:pointer;box-shadow:0 2px 0 rgba(80,100,130,.16)}
+  .bar button:active{transform:translateY(1px)}
+  .bar button.on{background:linear-gradient(90deg,#4db6ff,#7b8cff);color:#fff;box-shadow:0 2px 0 rgba(50,90,160,.28)}
+  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>Gears</b><span>circle any gear and the whole row spins together</span></div>
+<div class="hint" id="hint">⚙️ circle your finger around a gear</div>
+<div class="bar">
+  <button id="auto" class="on">⚙️ auto-spin</button>
+  <button id="rev">↔ reverse</button>
+  <button id="stop">■ stop</button>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,gears=[],edges=[],K=6;
+const COLORS=['#ff8f6b','#5ec7a8','#6aa8ff','#ffcf5e','#c58bff','#ff7fb0'];
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  build();
+}
+window.addEventListener('resize',resize);
+function build(){
+  const teeth=[16,11,14,9,13]; // teeth counts
+  // 每格=1齿的半径单位，先算整排的视觉总宽（含两端半径和齿尖），再定 K
+  const xu=[0]; for(let i=1;i<teeth.length;i++) xu.push(xu[i-1]+teeth[i-1]+teeth[i]);
+  const span=xu[xu.length-1]+teeth[0]+teeth[teeth.length-1]+1.2;
+  K=Math.min(7, W*0.92/span);
+  const rs=teeth.map(n=>n*K);
+  const xs=xu.map(v=>v*K);
+  const total=xs[xs.length-1]; const off=(W-(total+rs[0]+rs[rs.length-1]))/2+rs[0];
+  gears=rs.map((r,i)=>({x:off+xs[i],y:H*0.46,r,N:teeth[i],col:COLORS[i%COLORS.length],angle:0}));
+  // add one branching gear meshing above gear index 2
+  const bn=10, br=bn*K, gi=2;
+  const ang=-Math.PI*0.62;
+  gears.push({x:gears[gi].x+Math.cos(ang)*(gears[gi].r+br), y:gears[gi].y+Math.sin(ang)*(gears[gi].r+br), r:br,N:bn,col:COLORS[5],angle:0});
+  // mesh graph
+  edges=[]; for(let i=0;i<gears.length;i++)for(let j=i+1;j<gears.length;j++){
+    const d=Math.hypot(gears[i].x-gears[j].x,gears[i].y-gears[j].y);
+    if(Math.abs(d-(gears[i].r+gears[j].r))<K*0.8){ edges.push([i,j]); (gears[i].nb||(gears[i].nb=[])).push(j); (gears[j].nb||(gears[j].nb=[])).push(i); }
+  }
+  // 每颗齿轮相对驱动轮(0号)的转角比，用于「抓哪颗就转哪颗」
+  gears[0].f=1; const seen=new Array(gears.length).fill(false); seen[0]=true; const q0=[0];
+  while(q0.length){ const i=q0.shift();
+    for(const j of (gears[i].nb||[])) if(!seen[j]){ seen[j]=true; gears[j].f=-gears[i].f*gears[i].N/gears[j].N; q0.push(j); } }
+  driverAngle=0; propagate();
+}
+let driverAngle=0, omega=0.5, auto=true, dir=1;
+resize();
+
+function propagate(){
+  const vis=new Array(gears.length).fill(false);
+  gears[0].angle=driverAngle; vis[0]=true; const q=[0];
+  while(q.length){ const i=q.shift(); const gi=gears[i];
+    for(const j of (gi.nb||[])){ if(vis[j])continue; const gj=gears[j];
+      const phi=Math.atan2(gj.y-gi.y, gj.x-gi.x);
+      gj.angle=(phi+Math.PI)+Math.PI/gj.N - (gi.N/gj.N)*(gi.angle-phi);
+      vis[j]=true; q.push(j); }
+  }
+}
+
+function gearPath(g){
+  const r0=g.r-K*0.55, r1=g.r+K*0.55, N=g.N, step=Math.PI*2/N;
+  const iw=step*0.30, ow=step*0.18;
+  ctx.beginPath();
+  for(let k=0;k<N;k++){
+    const a=g.angle+k*step;
+    ctx.lineTo(g.x+Math.cos(a-iw)*r0, g.y+Math.sin(a-iw)*r0);
+    ctx.lineTo(g.x+Math.cos(a-ow)*r1, g.y+Math.sin(a-ow)*r1);
+    ctx.lineTo(g.x+Math.cos(a+ow)*r1, g.y+Math.sin(a+ow)*r1);
+    ctx.lineTo(g.x+Math.cos(a+iw)*r0, g.y+Math.sin(a+iw)*r0);
+    const an=a+step;
+    ctx.lineTo(g.x+Math.cos(an-iw)*r0, g.y+Math.sin(an-iw)*r0);
+  }
+  ctx.closePath();
+}
+function draw(){
+  ctx.fillStyle='#eef1f5'; ctx.fillRect(0,0,W,H);
+  for(const g of gears){
+    ctx.save();
+    ctx.shadowColor='rgba(60,80,110,.25)'; ctx.shadowBlur=12; ctx.shadowOffsetY=4;
+    gearPath(g); ctx.fillStyle=g.col; ctx.fill();
+    ctx.restore();
+    // body ring
+    ctx.fillStyle='rgba(255,255,255,.16)'; ctx.beginPath();ctx.arc(g.x,g.y,g.r-K*1.1,0,6.28);ctx.fill();
+    // hub
+    ctx.fillStyle='#fff'; ctx.beginPath();ctx.arc(g.x,g.y,g.r*0.30,0,6.28);ctx.fill();
+    ctx.fillStyle=shade(g.col,-30); ctx.beginPath();ctx.arc(g.x,g.y,g.r*0.14,0,6.28);ctx.fill();
+    // spoke holes to show rotation
+    ctx.fillStyle='rgba(0,0,0,.10)';
+    for(let k=0;k<5;k++){ const a=g.angle+k*Math.PI*2/5; ctx.beginPath();ctx.arc(g.x+Math.cos(a)*g.r*0.5,g.y+Math.sin(a)*g.r*0.5,g.r*0.09,0,6.28);ctx.fill(); }
+    // a marker tooth
+    ctx.fillStyle=shade(g.col,-45); ctx.beginPath();ctx.arc(g.x+Math.cos(g.angle)*(g.r*0.5),g.y+Math.sin(g.angle)*(g.r*0.5),g.r*0.11,0,6.28);ctx.fill();
+  }
+}
+function shade(hex,amt){const n=parseInt(hex.slice(1),16);let r=(n>>16)+amt,g=((n>>8)&255)+amt,b=(n&255)+amt;r=Math.max(0,Math.min(255,r));g=Math.max(0,Math.min(255,g));b=Math.max(0,Math.min(255,b));return 'rgb('+r+','+g+','+b+')';}
+
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.05); last=now;
+  if(!dragging){ if(auto){ omega += (0.6*dir-omega)*Math.min(1,dt*2); } else { omega*=Math.pow(0.25,dt); }
+    driverAngle+=omega*dt; }
+  propagate(); draw(); requestAnimationFrame(frame); }
+
+// ---- input: 绕任意一颗齿轮画圈 ----
+let dragging=false, prevA=0, crank=null;
+function nearest(x,y){ let g=gears[0],bd=1e9; for(const c of gears){const d=Math.hypot(x-c.x,y-c.y); if(d<bd){bd=d;g=c;}} return g; }
+function angTo(x,y){ return Math.atan2(y-crank.y, x-crank.x); }
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);dragging=true;crank=nearest(e.clientX,e.clientY);prevA=angTo(e.clientX,e.clientY);hideHint();});
+cv.addEventListener('pointermove',e=>{ if(!dragging)return; const a=angTo(e.clientX,e.clientY); let d=a-prevA; if(d>Math.PI)d-=6.283;if(d<-Math.PI)d+=6.283; const k=d/(crank.f||1); driverAngle+=k; omega=k/0.016*0.3; prevA=a; });
+cv.addEventListener('pointerup',()=>dragging=false);
+cv.addEventListener('pointercancel',()=>dragging=false);
+
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+document.getElementById('auto').onclick=e=>{auto=!auto;e.target.classList.toggle('on',auto);};
+document.getElementById('rev').onclick=()=>{dir*=-1; if(!auto){auto=true;document.getElementById('auto').classList.add('on');}};
+document.getElementById('stop').onclick=()=>{auto=false;omega=0;document.getElementById('auto').classList.remove('on');};
+// 引导文字自动停在按钮条上方（手机上按钮会换行变高）
+function placeHint(){const b=document.querySelector('.bar'),h=document.getElementById('hint');
+  if(b&&h)h.style.bottom=(innerHeight-b.getBoundingClientRect().top+12)+'px';}
+addEventListener('resize',placeHint); placeHint();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Backyard · Max's toy shed</title>
+<meta name="description" content="The stuff Max made that didn't make it into the portfolio: three bigger things and sixty little toys. Every one just opens and plays.">
+<style>
+*{box-sizing:border-box}
+:root{
+  --bg:#0e0d13; --card:#17161f; --line:rgba(255,255,255,.08);
+  --ink:#f2f0f8; --mut:#9a97ad; --dim:#6a6779;
+  --a:#ffd76a; --b:#ff6ad0; --c:#7a6cff; --d:#4ad9ff;
+}
+html,body{margin:0}
+body{
+  background:
+    radial-gradient(1200px 620px at 50% -12%,rgba(122,108,255,.17),transparent 62%),
+    radial-gradient(900px 520px at 92% 112%,rgba(255,106,208,.10),transparent 62%),
+    var(--bg);
+  color:var(--ink);min-height:100vh;
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,"Microsoft Yahei",sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1180px;margin:0 auto;padding:58px 22px 90px}
+
+/* header */
+header{text-align:center;margin-bottom:46px}
+.eyebrow{font-size:11.5px;letter-spacing:.34em;text-transform:uppercase;color:var(--mut);font-weight:800}
+h1{font-size:clamp(40px,8.5vw,78px);margin:.12em 0 .16em;font-weight:900;letter-spacing:.02em;
+   background:linear-gradient(92deg,var(--a),var(--b) 42%,var(--c) 78%,var(--d));
+   -webkit-background-clip:text;background-clip:text;color:transparent;text-wrap:balance}
+.sub{color:var(--mut);font-size:15.5px;line-height:1.8;max-width:34em;margin:0 auto;font-weight:500}
+.sub b{color:var(--ink);font-weight:600}
+.headlinks{display:flex;gap:9px;justify-content:center;flex-wrap:wrap;margin-top:22px}
+.pill{display:inline-flex;align-items:center;gap:7px;font-size:13px;
+  color:var(--mut);border:1px solid var(--line);padding:8px 15px;border-radius:99px;
+  background:rgba(255,255,255,.03);transition:.18s}
+.pill:hover{color:var(--ink);border-color:rgba(255,255,255,.2);background:rgba(255,255,255,.06)}
+
+/* section heads */
+.secthead{display:flex;align-items:baseline;gap:12px;margin:56px 0 20px;flex-wrap:wrap}
+.secthead h2{font-size:21px;margin:0;font-weight:800;letter-spacing:.02em}
+.secthead .note{color:var(--dim);font-size:13px;font-weight:500}
+
+/* big works */
+.bigs{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.big{position:relative;background:var(--card);border:1px solid var(--line);border-radius:18px;
+  padding:26px 24px 22px;overflow:hidden;transition:.2s;display:flex;flex-direction:column;min-height:210px}
+.big:before{content:"";position:absolute;inset:0;opacity:.16;transition:.2s;
+  background:radial-gradient(420px 200px at 15% 0%,var(--glow),transparent 70%)}
+.big:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.19)}
+.big:hover:before{opacity:.3}
+.big .em{font-size:32px;position:relative}
+.big h3{margin:12px 0 3px;font-size:19px;font-weight:800;position:relative}
+.big .zh{color:var(--dim);font-size:12px;letter-spacing:.04em;font-weight:600;position:relative}
+.big p{color:var(--mut);font-size:13.5px;line-height:1.75;margin:12px 0 0;position:relative;flex:1}
+.big .go{margin-top:16px;font-size:13px;font-weight:700;color:var(--ink);position:relative;opacity:.85}
+
+/* filters */
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 22px}
+.f{font-size:13px;font-weight:700;color:var(--mut);background:rgba(255,255,255,.04);
+  border:1px solid var(--line);padding:7px 14px;border-radius:99px;cursor:pointer;transition:.16s}
+.f:hover{color:var(--ink);border-color:rgba(255,255,255,.18)}
+.f.on{background:var(--ink);color:#14131a;border-color:var(--ink)}
+.f .n{opacity:.5;margin-left:5px;font-weight:600}
+
+/* toy grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:13px}
+.toy{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:17px 16px 15px;
+  transition:.16s;display:flex;flex-direction:column;position:relative;overflow:hidden}
+.toy:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.2);background:#1c1b26}
+.toy .top{display:flex;align-items:flex-start;justify-content:space-between}
+.toy .em{font-size:27px;line-height:1}
+.toy .idx{font-size:10.5px;color:var(--dim);font-variant-numeric:tabular-nums;font-weight:700;letter-spacing:.06em}
+.toy h4{margin:11px 0 2px;font-size:15px;font-weight:800}
+.toy .zh{color:var(--dim);font-size:11.5px;letter-spacing:.02em;font-weight:600}
+.toy p{color:var(--mut);font-size:12.5px;line-height:1.65;margin:9px 0 0;flex:1}
+.toy .tag{margin-top:11px;font-size:10.5px;color:var(--dim);font-weight:700;letter-spacing:.08em}
+.toy.hide{display:none}
+
+footer{margin-top:72px;text-align:center;color:var(--dim);font-size:12.5px;line-height:2}
+footer a{color:var(--mut);border-bottom:1px solid var(--line)}
+footer a:hover{color:var(--ink)}
+
+@media (max-width:640px){
+  .wrap{padding:40px 16px 70px}
+  .grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+  .toy p{display:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Max · Backyard</div>
+  <h1>Backyard</h1>
+  <p class="sub">
+    The stuff that didn't make it into the portfolio. <b>Three bigger things</b>, and <b>sixty little toys</b>.<br>
+    Every one is a single file, no dependencies, just open and play. Works on your phone too.
+  </p>
+  <div class="headlinks">
+    <a class="pill" href="../">中文</a>
+    <a class="pill" href="https://maxi-max-dev.github.io/">← the actual portfolio</a>
+  </div>
+</header>
+
+<div class="secthead">
+  <h2>The bigger ones</h2>
+  <span class="note">three, each worth a while</span>
+</div>
+<div class="bigs" id="bigs"></div>
+
+<div class="secthead">
+  <h2>Little toys</h2>
+  <span class="note">sixty of them, made over a few late nights, open and play</span>
+</div>
+<div class="filters" id="filters"></div>
+<div class="grid" id="grid"></div>
+
+<footer>
+  All single-file HTML, no dependencies, runs offline.<br>
+  <a href="https://maxi-max-dev.github.io/">Portfolio</a> ·
+  <a href="https://github.com/maxi-max-dev">GitHub</a>
+</footer>
+
+</div>
+
+<script>
+const BIGS=[
+  {em:"🏛",en:"Museum of Feelings",zh:"感觉博物馆",glow:"#7a6cff",
+   url:"https://maxi-max-dev.github.io/museum-of-feelings/",
+   desc:"Thirty-eight rooms, each one lets you play out an idea you'd normally only hear explained: cause a traffic jam with your own hands, weave yourself a filter bubble, learn why the line you pick is always the slowest. Grouped by senses, chance, systems, time, and decade-memories."},
+  {em:"🍽",en:"Le Festin",zh:"今夜设宴",glow:"#ff6ad0",
+   url:"https://maxi-max-dev.github.io/hannibal-menu/",
+   desc:"“Tell me what you eat, and I'll tell you who you are.” A box of flip cards. Flip through, order tonight's table, and it prints you a proper menu. Or just let the chef decide."},
+  {em:"🪞",en:"Other You",zh:"另一个你",glow:"#4ad9ff",
+   url:"https://maxi-max-dev.github.io/other-you/",
+   desc:"If you'd chosen differently back then, where would you be now. It plays it out one day at a time. It isn't selling predictions, the sample size is one person, you."},
+];
+
+const CATS=["All","Physics","Ambient","Games","Drawing","Luck","Music"];
+
+// [id, slug, emoji, en name, zh name, category, description]
+const TOYS=[
+ [1,"jelly","🍮","Jelly","果冻工厂","Physics","A pile of wobbly jellies with big eyes that follow your finger. Poke one and it squishes, fling it, splat it on the wall."],
+ [2,"kaleido","🔮","Kaleidoscope","万花镜","Drawing","Move your finger and a glowing mandala draws itself, spinning and symmetric. Adjustable petals, save your favorite."],
+ [3,"doodle","🖍️","Doodle","弹珠涂鸦","Physics","Draw a few ramps, tap to drop a candy marble, and watch it roll, bounce, and pile up along your lines."],
+ [4,"bloom","🌷","Bloom","种一朵","Ambient","Tap the ground and a seed sprouts, sways in the wind, and opens into a flower. Fill the whole field."],
+ [5,"fluid","🌫️","Ink","墨","Physics","Drag your finger through the water and glowing colored smoke curls and spreads. Real fluid math underneath."],
+ [6,"powder","⏳","Powder","落沙","Physics","Pick sand, water, stone, sprout, or fire and paint: sand piles into slopes, water flows and spills, fire spreads through the plants."],
+ [7,"harp","🎵","Harp","光弦","Music","Swipe across a row of colored strings, they shimmer and chime. Pentatonic, so it sounds good no matter how you play."],
+ [8,"whack","🔨","Whack","打地鼠","Games","Little guys pop out of the holes, tap one and it ducks back with a boop. Combos multiply, don't hit the spiky ones. Thirty seconds."],
+ [9,"fireworks","🎆","Fireworks","烟花","Ambient","Tap the night sky and a rocket climbs, then bursts into a flower. Three shapes, full color, with sound."],
+ [10,"pop","🫧","Bubble Wrap","戳泡泡","Games","A whole sheet of rainbow bubble wrap. Pop one, or hold and drag to pop a whole row. Clear it and confetti flies."],
+ [11,"constellation","✨","Constellation","星座","Drawing","A sky full of stars. Drag from one to another to draw your own constellation, each link plays a note, higher as you go."],
+ [12,"slice","🍉","Slice","切切乐","Games","Fruit flies up, swipe to slice it clean in two, juice everywhere. Dodge the bombs."],
+ [13,"ripple","💧","Ripple","涟漪","Ambient","Tap the water and rings spread out, cross through each other, and bounce off the edges. The moon's reflection ripples apart."],
+ [14,"magnet","🧲","Iron Filings","磁力铁屑","Physics","Twenty-eight hundred iron filings on paper. Drag the magnets and they snap into that pattern from your physics textbook."],
+ [15,"chaos","🌀","Chaos","混沌摆","Physics","Seven double pendulums let go side by side, nearly identical starts. Seconds later they've flung apart completely. The butterfly effect, made visible."],
+ [16,"gears","⚙️","Gears","齿轮","Physics","Six colored gears meshed tight. Turn any one and the whole row moves by ratio, big ones slow, small ones fast."],
+ [17,"rainwindow","🌧️","Rainy Window","雨窗","Ambient","A foggy window on a rainy night. Fat drops slide down leaving clear streaks. Wipe the fog and the neon shows through."],
+ [18,"2048","🔢","2048","2048","Games","The classic. Slide to merge numbered tiles, 2+2=4, all the way up to 2048."],
+ [19,"tiles","🎹","Piano Tiles","别踩白块","Games","Neon tiles fall down four lanes, tap the lowest one, miss and it's over. Each tap plays a note that builds into a tune."],
+ [20,"dandelion","🌱","Dandelion","蒲公英","Ambient","One fluffy dandelion. Swipe across it to blow the seeds loose, little parachutes drifting off and spinning away."],
+ [21,"laser","🔦","Laser","光","Physics","A laser fires out. Drag and turn the mirrors to bend it around, then land it on the crystal to light it up."],
+ [22,"dominoes","🁢","Dominoes","多米诺","Physics","Swipe to lay out a row of dominoes, tap the first, and watch them clatter down one after another."],
+ [23,"particletext","✨","Particle Text","粒子字","Drawing","Type something and a couple thousand glowing particles fly in to spell it. Swipe to scatter them, they flow back and reassemble."],
+ [24,"hoops","🏀","Hoops","投篮","Games","Pull the ball back and let go, slingshot style. Swish it in to score, sink a few and the hoop starts sliding around."],
+ [25,"fireflies","🪰","Fireflies","萤火虫","Ambient","A summer meadow of fireflies, blinking, slowly syncing until the whole field pulses as one. Rest your finger and they gather to it."],
+ [26,"memory","🃏","Memory","翻翻乐","Games","Sixteen face-down cards. Flip two, a match stays, a miss flips back. Clear all eight pairs from memory."],
+ [27,"aurora","🌌","Aurora","极光","Ambient","Green and purple aurora curtains ripple overhead, snowy peaks and stars below. Swipe to stir them."],
+ [28,"wheel","🎡","Spin Wheel","大转盘","Luck","An eight-slice prize wheel. Give it a flick and it slows to a stop, clicking past the pointer. Land on 'spin again' and it does."],
+ [29,"jellyfish","🪼","Jellyfish","水母","Ambient","A few glowing jellyfish pulse their way up through the deep, long tentacles trailing. Your finger is the current, pulling them over."],
+ [30,"pinball","🕹️","Pinball","弹珠台","Games","An arcade pinball table. The ball ricochets off the bumpers for points, tap the left or right side to flip it back up."],
+ [31,"snake","🐍","Snake","贪吃蛇","Games","The all-time classic. Eat an apple, grow a segment. Hit a wall or your own tail and it's over."],
+ [32,"solar","🪐","Solar System","太阳系","Physics","Eight planets orbiting at their real relative speeds, Mercury fastest, Neptune slowest. Saturn has rings, Earth has a moon."],
+ [33,"minesweeper","💣","Minesweeper","扫雷","Games","Classic minesweeper, the number is how many mines are next door. First click is always safe, blank cells open in a flood."],
+ [34,"radar","📡","Radar","雷达","Ambient","A green phosphor radar screen, the sweep circling with a trailing glow, blips lighting up with a ping. Tap to drop targets."],
+ [35,"paint","🎨","Color Mixer","调色盘","Drawing","Drag blobs of red, yellow, and blue together and they really mix: red plus yellow makes orange, yellow plus blue makes green. Like art class."],
+ [36,"ecg","💚","ECG","心电图","Ambient","A hospital heart monitor, the green trace sweeping across, a beep on every beat. Dial the heart rate up or down."],
+ [37,"hop","🦘","Hop","跳一跳","Games","Hold to charge, let go, and the little cube arcs to the next pillar. Land dead center for more, miss and it drops."],
+ [38,"campfire","🔥","Campfire","篝火","Ambient","A campfire at night, flames licking up, sparks crackling skyward. Poke it to flare up, swipe to fan it sideways."],
+ [39,"aquarium","🐠","Aquarium","鱼缸","Ambient","A little school of cute fish drifting, tails swishing. Tap to drop food and the nearby ones turn and swim over to eat."],
+ [40,"snowglobe","❄️","Snow Globe","雪花球","Ambient","A winter night in a glass globe: a cabin glowing warm, pines, a moon. Shake it and the snow swirls up, then settles back down."],
+ [41,"slots","🎰","Slots","老虎机","Luck","A classic fruit machine. Hit spin, three reels blur, then clunk to a stop one by one. Three of a kind is the jackpot."],
+ [42,"piano","🎹","Piano","钢琴","Music","Two octaves of black and white keys, play by tapping or on your keyboard, keys light up as you go. Autoplay scatters little stars."],
+ [43,"goldenegg","🥚","Golden Eggs","砸金蛋","Luck","The office-party thing. Three golden eggs, tap and a hammer swings down to crack one open, out pops a red envelope or a 'thanks for playing'."],
+ [44,"dice","🎲","Dice","骰子","Luck","Roll two dice on the green felt, tumbling and bouncing off the walls, then settling on a number. Doubles light up red."],
+ [45,"balloon","🎈","Balloon","吹气球","Games","Pump it up, the balloon swells and gets tense, and past some point you can't see, it pops. Tie it off in time to win."],
+ [46,"spirograph","🌀","Spirograph","万花尺","Drawing","That loop-drawing toy from childhood. A little gear runs a pen around a big ring, tracing a symmetric neon flower."],
+ [47,"shatter","💥","Shatter","碎","Physics","The whole screen is a pane of glass with a dusk city behind it. Poke it, cracks burst out, a beat later it falls, each shard still holding a piece of the view."],
+ [48,"chladni","🔊","Chladni","声之沙","Physics","Sand scattered on a metal plate. Drag sideways and thousands of grains scatter, then regather into the shape that frequency makes."],
+ [49,"petri","🐆","Petri","斑","Drawing","Draw a line in the dish and two seconds later it thickens, splits, and branches on its own, growing into a slowly writhing coat of spots."],
+ [50,"zen-garden","🪨","Zen Garden","枯山水","Drawing","Your finger is the rake, pulling five grooves through fine sand. Near a rock the lines part on their own and arc into rings."],
+ [51,"alive","🐛","It's Alive","活了","Games","Scribble something on the paper, hit the button, and it grows legs, shakes twice, stands up, and wobbles off across the page."],
+ [52,"pendulum-wave","🎐","Pendulum Wave","摆钟琴","Music","A row of pendulums of different lengths let go at once. First a slanting wave, then a tangled mess, then at second twenty they snap back into a straight line."],
+ [53,"shadow-play","🔦","Colored Shadows","彩色的影子","Physics","One white wall, one red light and one blue. Drag a block around and you'll notice the shadow from the blue light comes out red."],
+ [54,"murmuration","🕊️","Murmuration","起风了","Ambient","A huge flock of starlings stretching, twisting, splitting, and folding back into the dusk sky. Press down and the whole flock bursts like water hit by a stone."],
+ [55,"river-carve","🌊","River","河","Physics","A patch of land that water carves into valleys. Pile earth, dig channels, reroute the flow, and the terrain keeps every mark you make."],
+ [56,"softbody-rope","🪢","Rope","绳","Physics","One pen draws rope, cloth, and balloons, three soft things. Pin them together, keep building, and end up with a machine of your own."],
+ [57,"hanzi-merge","🈴","Hanzi Merge","森","Games","Drag two Chinese character parts together and they snap into a new one. 木+木=林, 林+木=森. The collection wall lights up as you fill it."],
+ [58,"hexconnect","⬡","Connect","连","Games","Link your red from the left edge to the right and you win. One sentence of rules, but beating the computer isn't so easy."],
+ [59,"loomloop","🧵","Loom","织","Music","Tap the cells and it loops forever. Change how long one row loops and the whole piece never repeats again."],
+ [60,"clay-wheel","🏺","Pottery","拉坯","Drawing","Press and the clay deforms. To go taller you have to go thinner, and too thin collapses. Fire it, and the piece stays on the shelf."],
+];
+
+const $=s=>document.querySelector(s);
+
+$('#bigs').innerHTML=BIGS.map(b=>`
+  <a class="big" href="${b.url}" style="--glow:${b.glow}">
+    <span class="em">${b.em}</span>
+    <h3>${b.en}</h3>
+    <div class="zh">${b.zh}</div>
+    <p>${b.desc}</p>
+    <div class="go">take a look ↗</div>
+  </a>`).join('');
+
+const count=c=>c==='All'?TOYS.length:TOYS.filter(t=>t[5]===c).length;
+$('#filters').innerHTML=CATS.map((c,i)=>
+  `<button class="f${i===0?' on':''}" data-c="${c}">${c}<span class="n">${count(c)}</span></button>`).join('');
+
+$('#grid').innerHTML=TOYS.map(([i,slug,em,en,zh,cat,desc])=>`
+  <a class="toy" data-c="${cat}" href="t/${slug}.html">
+    <div class="top"><span class="em">${em}</span><span class="idx">${String(i).padStart(2,'0')}</span></div>
+    <h4>${en}</h4>
+    <div class="zh">${zh}</div>
+    <p>${desc}</p>
+    <div class="tag">${cat}</div>
+  </a>`).join('');
+
+$('#filters').addEventListener('click',e=>{
+  const b=e.target.closest('.f'); if(!b) return;
+  document.querySelectorAll('.f').forEach(x=>x.classList.toggle('on',x===b));
+  const c=b.dataset.c;
+  document.querySelectorAll('.toy').forEach(t=>
+    t.classList.toggle('hide', c!=='All' && t.dataset.c!==c));
+});
+</script>
+</body>
+</html>

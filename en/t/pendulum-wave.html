@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Pendulum Wave</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;
+    background:#05060d;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#c8d4f0;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0;touch-action:none}
+  .title{position:fixed;top:14px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:2px;color:#e6edff;text-shadow:0 2px 12px rgba(80,120,255,.5)}
+  .title span{display:block;font-size:12px;opacity:.55;margin-top:3px;font-weight:600}
+  .warn{position:fixed;top:16px;right:18px;z-index:5;font-size:12px;font-weight:700;
+    color:#ffc98a;opacity:0;transition:opacity .5s;pointer-events:none;
+    background:rgba(60,44,20,.5);border:1px solid rgba(255,190,110,.28);padding:5px 10px;border-radius:9px}
+  .warn.on{opacity:.85}
+  /* 窄屏上右上角会撞标题，挪到标题下面一行 */
+  @media (max-width:560px){ .warn{top:66px;right:12px;font-size:11.5px;padding:4px 9px} }
+  .dock{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;flex-direction:column;
+    align-items:center;gap:9px;pointer-events:none;
+    padding:0 10px 16px;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+  .hint{font-size:12.5px;font-weight:600;opacity:.5;text-align:center;
+    transition:opacity .6s;pointer-events:none;text-shadow:0 1px 6px rgba(0,0,0,.7)}
+  .bar{pointer-events:auto;display:flex;gap:7px;flex-wrap:nowrap;justify-content:center;align-items:center;
+    background:rgba(22,28,54,.72);border:1px solid rgba(130,160,255,.2);
+    padding:8px;border-radius:16px;backdrop-filter:blur(10px);box-shadow:0 8px 26px rgba(0,0,0,.5)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#cfdbff;border:none;
+    background:rgba(70,90,150,.35);padding:9px 13px;border-radius:11px;cursor:pointer;
+    white-space:nowrap;transition:transform .07s,background .2s}
+  .bar button:active{transform:translateY(1px)}
+  .bar button.go{background:linear-gradient(90deg,#5b8cff,#a77bff);color:#fff}
+  .bar .seg{display:flex;gap:4px;background:rgba(10,14,30,.5);padding:3px;border-radius:12px}
+  .bar .seg button{padding:7px 10px;font-size:12.5px;background:transparent;color:#8fa2cf}
+  .bar .seg button.on{background:rgba(120,150,255,.28);color:#e8efff}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>Pendulum Wave</b><span>swipe them all to one side, then wait for it</span></div>
+<div class="warn" id="warn">one's out of sync · hit "pull back" to reset</div>
+<div class="dock">
+  <div class="hint" id="hint">🎐 swipe sideways across them, or hit "pull back"</div>
+  <div class="bar">
+    <button id="pull" class="go">🎐 pull back</button>
+    <div class="seg">
+      <button data-n="12">12</button>
+      <button data-n="16" class="on">16</button>
+      <button data-n="24">24</button>
+    </div>
+  </div>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const hintEl=document.getElementById('hint'), warnEl=document.getElementById('warn');
+
+// ---------- 解析解参数（绝不做物理积分，重聚才能精确） ----------
+const T=20;          // 全周期：T 秒后所有摆必然重新同相
+const N0=25;         // 最长摆在 T 内完成 25 次摆动
+const TWO=Math.PI*2;
+const G=9.8;
+
+let N=16;
+let W=0,H=0,dpr=1;
+let beamY=0,Lmax=0,sp=0,ballR=6,x0=0,barY=0,ampA=0.12;
+let P=[];            // 摆
+let now=0;           // 仿真时钟（秒）
+let released=false, t0g=0, offPhase=false;
+let notesFired=0, lastNoteSim=-9;
+let popT=-99, lastPhase=0;   // 重聚那一刻的「啪」：popT=精确的重聚时刻
+
+const PENT=[0,2,4,7,9];
+function pentFreq(k){ return 220*Math.pow(2,(PENT[((k%5)+5)%5]+12*Math.floor(k/5))/12); }
+
+function build(){
+  P=[];
+  for(let i=0;i<N;i++){
+    const w=TWO*(N0+i)/T;
+    // 音高：摆序号映射到五声音阶跨两个八度（0..10）
+    const k=Math.round(i*10/(N-1));
+    P.push({i,w,k,freq:pentFreq(k),amp:0,t0:0,noteK:0,grab:false,L:0,x:0});
+  }
+  layout();
+  if(released) pull(); else {released=false;}
+}
+
+function layout(){
+  const dock=document.querySelector('.dock');
+  const dh=dock?dock.getBoundingClientRect().height:110;
+  beamY=H*0.12;
+  const bottomLimit=H-dh-14;
+  // 竖屏（手机）最长摆到屏高 70%；宽屏留得太空，放到 80%
+  const ballBottom=Math.min(H*(H/W>1.4?0.70:0.80), bottomLimit);
+  Lmax=Math.max(60, ballBottom-beamY);
+  // 横向：最长摆摆幅 = 1.9*间距，最短摆按 L 比例更小 → 左右留量不对称
+  const rat=(N0/(N0+N-1))*(N0/(N0+N-1));   // 最短摆 / 最长摆 的线长比
+  const pad=1.9*(1+rat);
+  sp=Math.min((W-26)/((N-1)+pad), 44);
+  ballR=Math.max(4,Math.min(9,sp*0.28));
+  const prevA=ampA;
+  ampA=Math.asin(Math.min(0.5, 1.9*sp/Lmax));
+  // 换尺寸时把已在荡的摆幅等比重映射，否则窗口变窄后球会甩出屏外
+  if(prevA>0){ const k=ampA/prevA; for(const p of P) if(p.amp) p.amp*=k; }
+  const aMax=Lmax*Math.sin(ampA), aMin=Lmax*rat*Math.sin(ampA);
+  const m=Math.max(4,(W-(sp*(N-1)+aMax+aMin))/2);
+  x0=m+aMax;                               // 左边给最长摆留够，右边给最短摆留够
+  const w0=TWO*N0/T;
+  for(const p of P){
+    p.L=Lmax*(w0/p.w)*(w0/p.w);   // L = g/ω² → 线长差是数学自动给的
+    p.x=x0+sp*p.i;
+  }
+  barY=Math.min(beamY+Lmax+26, H-dh-6);
+}
+
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  layout();   // 只影响绘制缩放，物理是纯角度的，不重置 t0
+}
+addEventListener('resize',resize);
+
+// ---------- 角度：纯解析 ----------
+function angleOf(p){
+  if(p.grab) return p.amp;                                 // 被手指捏着，跟着走
+  if(!released) return 0.022*Math.sin(now*0.9+p.i*0.45);   // ready 态：呼吸式微晃
+  return p.amp*Math.cos(p.w*(now-p.t0));
+}
+// 把音符计数直接跳到当前时刻，避免旧相位下从 k=0 慢慢追
+function resetNoteK(p){
+  p.noteK=Math.max(0,Math.ceil(((now-p.t0)*p.w-1.5*Math.PI)/TWO));
+}
+// 上一次「过零且速度为正」的时刻（用于敲击闪光，解析求，不用积分）
+function lastStrike(p){
+  const ph=p.w*(now-p.t0)-1.5*Math.PI;
+  const k=Math.floor(ph/TWO);
+  return p.t0+(1.5*Math.PI+TWO*k)/p.w;
+}
+
+function pull(){
+  t0g=now; released=true; offPhase=false;
+  popT=-99; lastPhase=0;
+  for(const p of P){ p.amp=ampA; p.t0=now; p.noteK=0; p.grab=false; }
+  warnEl.classList.remove('on');
+  hideHint();
+}
+
+// ---------- 音频 ----------
+let actx=null,master=null,comp=null;
+let aAnchor=0,sAnchor=0,anchored=false;
+let voices=[];
+function initAudio(){
+  if(actx) return;
+  try{
+    actx=new (window.AudioContext||window.webkitAudioContext)();
+    comp=actx.createDynamicsCompressor();
+    comp.threshold.value=-22; comp.knee.value=26; comp.ratio.value=9;
+    comp.attack.value=0.004; comp.release.value=0.22;
+    master=actx.createGain(); master.gain.value=0.5;
+    master.connect(comp); comp.connect(actx.destination);
+  }catch(e){ actx=null; }
+}
+function wakeAudio(){
+  initAudio();
+  if(actx&&actx.state==='suspended') actx.resume();
+  reanchor();
+}
+function reanchor(){ if(!actx) return; aAnchor=actx.currentTime; sAnchor=now; anchored=true; }
+
+function emit(freq,simT,vol,pan){
+  if(!actx||actx.state!=='running'||!anchored) return;
+  // 关键：用 AudioContext.currentTime 提前预约，不跟 rAF 走
+  // 锚点只在起摆时取一次 → 音符间隔精确，不受 rAF 抖动影响
+  let at=aAnchor+(simT-sAnchor);
+  if(at<actx.currentTime+0.002){ reanchor(); at=aAnchor+(simT-sAnchor); }  // 掉帧太久 → 重新对表
+  at=Math.max(at, actx.currentTime+0.004);
+  // 复音上限
+  voices=voices.filter(v=>v>actx.currentTime);
+  if(voices.length>72) return;
+  voices.push(at+0.9);
+  const o=actx.createOscillator(); o.type='sine'; o.frequency.value=freq;
+  const g=actx.createGain();
+  g.gain.setValueAtTime(0.0001,at);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.0015,vol),at+0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001,at+0.8);      // 指数衰减包络 0.8s
+  o.connect(g);
+  const o2=actx.createOscillator(); o2.type='sine'; o2.frequency.value=freq*5.4; // 金属味分音
+  const g2=actx.createGain();
+  g2.gain.setValueAtTime(0.0001,at);
+  g2.gain.exponentialRampToValueAtTime(Math.max(0.0008,vol*0.17),at+0.004);
+  g2.gain.exponentialRampToValueAtTime(0.0001,at+0.26);
+  o2.connect(g2);
+  let out=master;
+  if(actx.createStereoPanner){
+    const pn=actx.createStereoPanner(); pn.pan.value=Math.max(-1,Math.min(1,pan));
+    g.connect(pn); g2.connect(pn); pn.connect(master);
+  } else { g.connect(master); g2.connect(master); }
+  o.start(at); o.stop(at+0.92); o2.start(at); o2.stop(at+0.3);
+}
+
+// 每帧：把未来 160ms 内的音符全排好；同一 16ms 窗口内音符越多，单音越轻
+function schedule(){
+  if(!released) return;
+  const look=now+0.16;
+  const due=[];
+  for(const p of P){
+    if(p.grab||Math.abs(p.amp)<0.004) continue;
+    let guard=0;
+    while(guard++<400){
+      const s=p.t0+(1.5*Math.PI+TWO*p.noteK)/p.w;
+      if(s>look) break;
+      p.noteK++;
+      if(s<now-0.08) continue;             // 陈旧的跳过（后台标签页回来时）
+      due.push({p,s});
+    }
+  }
+  if(!due.length) return;
+  const buckets=new Map();
+  for(const d of due){
+    const b=Math.round(d.s*62.5);
+    buckets.set(b,(buckets.get(b)||0)+1);
+  }
+  for(const d of due){
+    const n=buckets.get(Math.round(d.s*62.5))||1;
+    const vol=0.42/Math.sqrt(n);           // 主增益动态压制，防同相时刻砸琴
+    notesFired++; if(d.s>lastNoteSim) lastNoteSim=d.s;
+    if(window.__noteLog){                  // 验收钩子：不依赖真实发声也能查排程
+      window.__noteLog.push({i:d.p.i,f:+d.p.freq.toFixed(2),s:+d.s.toFixed(4),v:+vol.toFixed(4),same:n});
+      if(window.__noteLog.length>6000) window.__noteLog.shift();
+    }
+    emit(d.p.freq,d.s,vol,(d.p.x/W)*2-1);
+  }
+}
+
+// ---------- 绘制 ----------
+function draw(){
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#151c3a'); g.addColorStop(0.55,'#0a0e20'); g.addColorStop(1,'#04050c');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+
+  // 重聚亮度（phase 接近 0 / 1 时全场微亮）
+  let align=0, phase=0;
+  if(released){
+    const f=((now-t0g)%T+T)%T;
+    phase=f/T;
+    const d=Math.min(f,T-f);
+    align=Math.exp(-(d/0.75)*(d/0.75));
+  }
+  if(align>0.02){
+    const rg=ctx.createRadialGradient(W/2,beamY+Lmax*0.5,10,W/2,beamY+Lmax*0.5,Math.max(W,H)*0.7);
+    rg.addColorStop(0,'rgba(120,160,255,'+(0.13*align)+')');
+    rg.addColorStop(1,'rgba(120,160,255,0)');
+    ctx.fillStyle=rg; ctx.fillRect(0,0,W,H);
+  }
+  // 重聚那一刻的「啪」：瞬间起、0.5 秒落。align 只负责铺垫，pop 负责结算
+  let pop=0, popAge=-1;   // -1 = 还没重聚过，涟漪不许画
+  if(released&&popT>-9){ popAge=now-popT; pop=popAge<0?0:Math.exp(-popAge*4.6); }
+  if(pop>0.01){
+    const rg2=ctx.createRadialGradient(W/2,beamY+Lmax*0.5,10,W/2,beamY+Lmax*0.5,Math.max(W,H)*0.62);
+    rg2.addColorStop(0,'rgba(198,222,255,'+(0.34*pop)+')');
+    rg2.addColorStop(0.55,'rgba(130,168,255,'+(0.16*pop)+')');
+    rg2.addColorStop(1,'rgba(120,160,255,0)');
+    ctx.fillStyle=rg2; ctx.fillRect(0,0,W,H);
+  }
+
+  // 横梁
+  const bx=Math.max(10,x0-sp*0.8), bw=Math.min(W-20,sp*(N-1)+sp*1.6);
+  ctx.fillStyle='rgba(18,24,52,1)';
+  ctx.fillRect(bx,beamY-7,bw,9);
+  ctx.fillStyle='rgba(150,180,255,'+(0.22+0.25*align)+')';
+  ctx.fillRect(bx,beamY-7,bw,2);
+  if(pop>0.01){   // 横梁被「敲」白一下，从上沿溢出一道光
+    ctx.fillStyle='rgba(228,240,255,'+(0.85*pop)+')';
+    ctx.fillRect(bx,beamY-8,bw,3);
+    const bgd=ctx.createLinearGradient(0,beamY-8-22*pop,0,beamY-6);
+    bgd.addColorStop(0,'rgba(170,200,255,0)');
+    bgd.addColorStop(1,'rgba(190,215,255,'+(0.30*pop)+')');
+    ctx.fillStyle=bgd; ctx.fillRect(bx,beamY-8-22*pop,bw,22*pop+2);
+  }
+
+  // 线 + 球
+  for(const p of P){
+    const th=angleOf(p);
+    const px=p.x+p.L*Math.sin(th);
+    const py=beamY+p.L*Math.cos(th);
+    ctx.beginPath(); ctx.moveTo(p.x,beamY); ctx.lineTo(px,py);
+    ctx.lineWidth=1; ctx.strokeStyle='rgba(160,190,255,'+(0.16+0.12*align)+')'; ctx.stroke();
+
+    let flash=0;
+    if(released&&Math.abs(p.amp)>0.004){
+      const age=now-lastStrike(p);
+      flash=Math.exp(-age*5.5);
+    }
+    const hue=195+(p.i/Math.max(1,N-1))*135;
+    const r=ballR*(1+0.16*flash+0.22*pop);
+    const gl=ctx.createRadialGradient(px,py,0,px,py,r*4.2);
+    gl.addColorStop(0,'hsla('+hue+',95%,72%,'+(0.30+0.42*flash+0.2*align+0.45*pop)+')');
+    gl.addColorStop(1,'hsla('+hue+',95%,60%,0)');
+    ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(px,py,r*4.2,0,TWO); ctx.fill();
+
+    const bg=ctx.createRadialGradient(px-r*0.35,py-r*0.4,r*0.15,px,py,r);
+    bg.addColorStop(0,'hsl('+hue+',100%,'+(88+6*flash)+'%)');
+    bg.addColorStop(0.6,'hsl('+hue+',88%,'+(64+12*flash)+'%)');
+    bg.addColorStop(1,'hsl('+hue+',80%,'+(42+10*flash)+'%)');
+    ctx.fillStyle=bg; ctx.beginPath(); ctx.arc(px,py,r,0,TWO); ctx.fill();
+    if(p.grab){
+      ctx.strokeStyle='rgba(255,255,255,.75)'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(px,py,r+5,0,TWO); ctx.stroke();
+    }
+  }
+
+  // 极细进度条：暗示「快到什么时刻了」，不写字
+  const px0=W*0.16, px1=W*0.84;
+  ctx.fillStyle='rgba(140,170,255,'+(0.13+0.5*pop)+')';
+  ctx.fillRect(px0,barY,px1-px0,1.5);
+  if(released){
+    ctx.fillStyle='rgba(170,200,255,'+(0.4+0.5*align)+')';
+    ctx.fillRect(px0,barY,(px1-px0)*phase,1.5);
+    const dx=px0+(px1-px0)*phase, dy=barY+0.75;
+    if(popAge>=0&&popAge<0.55){   // 进度点归零 = 从起点炸开一圈涟漪，0.55s 收干净
+      const rk=popAge/0.55;
+      ctx.strokeStyle='rgba(200,222,255,'+(0.6*(1-rk)*(1-rk))+')';
+      ctx.lineWidth=1.4+2.2*pop;
+      ctx.beginPath(); ctx.arc(px0,dy,5+rk*62,0,TWO); ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(dx,dy,1.8+2.6*align+3.4*pop,0,TWO);
+    ctx.fillStyle='rgba(200,220,255,'+(0.6+0.4*align)+')'; ctx.fill();
+  }
+}
+
+// ---------- 输入 ----------
+let sweepX=null, sweepY=null, dragging=null, downAt=0, downT=0, moved=0;
+function ballPos(p){
+  const th=angleOf(p);
+  return [p.x+p.L*Math.sin(th), beamY+p.L*Math.cos(th)];
+}
+// 单球最多能被拉开多少：默认摆幅是 1.9 个间距，给到 3.2 个就够「明显跑偏」了，
+// 再远就不像捏球、像横划了（也顺便保证被拖的球不会贴到屏幕边）
+function dragLimit(p){ return Math.min(p.L*0.45, sp*3.2); }
+function pick(x,y){
+  let best=null,bd=1e9;
+  for(const p of P){
+    const [bx,by]=ballPos(p);
+    const d=Math.hypot(bx-x,by-y);
+    if(d<bd){bd=d;best=p;}
+  }
+  return (bd<Math.max(20,ballR*3.2))?best:null;
+}
+function onDown(e){
+  e.preventDefault();
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  wakeAudio();
+  const x=e.clientX,y=e.clientY;
+  downAt=now; downT=performance.now(); moved=0; sweepX=x; sweepY=y;
+  const p=pick(x,y);
+  if(p){ dragging=p; p.grab=true; }
+}
+function onMove(e){
+  const x=e.clientX,y=e.clientY;
+  if(dragging){
+    // 「横着划过它们」起手正好按在球上时别误判成捏球：
+    // 快速横甩，或者手指已经把这根球甩在身后老远，都按「划一下」处理
+    moved+=Math.abs(x-sweepX); sweepX=x;
+    const lim=dragLimit(dragging);
+    const far=Math.abs(x-dragging.x)>lim+Math.max(30,sp);   // 手指已经把这颗球甩在身后老远
+    if(moved>Math.max(40,W*0.12)&&(performance.now()-downT<260||far)){
+      dragging.grab=false; dragging.dragTh=0; dragging=null;
+      sweepX=null; moved=0; pull(); return;
+    }
+    const dx=Math.max(-lim,Math.min(lim,x-dragging.x));
+    dragging.dragTh=Math.asin(dx/dragging.L);
+    dragging.amp=dragging.dragTh; dragging.t0=now;   // 拖着时定住在这个角度
+    return;
+  }
+  if(sweepX==null) return;
+  moved+=Math.abs(x-sweepX);
+  sweepX=x;
+  if(moved>Math.max(40,W*0.12)){ sweepX=null; pull(); }
+}
+function onUp(){
+  if(dragging){
+    const p=dragging;
+    p.grab=false;
+    const th=p.dragTh||0; p.dragTh=0;
+    if(Math.abs(th)<0.012){
+      if(released){ p.amp=ampA; p.t0=t0g; resetNoteK(p); }   // 只是点了一下：归队
+    }else{
+      p.amp=th; p.t0=now; resetNoteK(p);   // 从静止释放 → 相位归到此刻，必然偏离大部队
+      if(!released){                        // ready 态拨一根：只有它荡起来
+        released=true; t0g=now;
+        for(const q of P) if(q!==p){ q.amp=0; q.t0=now; resetNoteK(q); }
+      }
+      offPhase=true; warnEl.classList.add('on');
+    }
+    dragging=null; hideHint();
+  } else if(sweepX!=null && moved<12 && !released){
+    pull();                // ready 态点一下也起摆
+  }
+  sweepX=null;
+}
+cv.addEventListener('pointerdown',onDown);
+cv.addEventListener('pointermove',onMove);
+cv.addEventListener('pointerup',onUp);
+cv.addEventListener('pointercancel',onUp);
+
+let hintGone=false;
+function hideHint(){ if(hintGone)return; hintGone=true; hintEl.style.opacity=0; }
+
+document.getElementById('pull').onclick=()=>{ wakeAudio(); pull(); };
+document.querySelectorAll('.seg button').forEach(b=>{
+  b.onclick=()=>{
+    wakeAudio();
+    document.querySelectorAll('.seg button').forEach(o=>o.classList.remove('on'));
+    b.classList.add('on');
+    N=+b.dataset.n; build(); pull();
+  };
+});
+
+// ---------- 主循环 ----------
+function step(dt){
+  now+=dt;
+  if(released){
+    const f=((now-t0g)%T+T)%T, ph=f/T;
+    // 相位回绕 = 刚跨过第 20 秒。popT 减掉 f，拿到精确的重聚时刻（大 dt 也不飘）
+    if(ph<lastPhase-0.5) popT=now-f;
+    lastPhase=ph;
+  }
+  schedule();
+}
+let last=performance.now();
+function frame(ms){
+  const dt=Math.min((ms-last)/1000,0.05); last=ms;
+  if(!window.__frozen) step(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+
+// 手动步进钩子（无头验收用；这条车道只有 1~4fps，靠等真实时间不可信）
+window.__tick=(n,dt)=>{ dt=dt||1/60; for(let i=0;i<n;i++) step(dt); draw(); };
+window.__state=()=>{
+  const angs=P.map(angleOf);
+  const xs=P.map(p=>ballPos(p)[0]);
+  const f=released?(((now-t0g)%T+T)%T)/T:0;
+  const pAge=(released&&popT>-9)?now-popT:-1;
+  return {N,released,now,phase:f,notesFired,offPhase,
+    popT,popAge:pAge,pop:pAge<0?0:Math.exp(-pAge*4.6),
+    ampA,Lmax,sp,ballR,beamY,barY,W,H,
+    angles:angs, xs, ys:P.map(p=>ballPos(p)[1]),
+    spread:Math.max(...angs)-Math.min(...angs),
+    nan:angs.some(a=>!isFinite(a))||xs.some(v=>!isFinite(v))};
+};
+window.__pull=()=>pull();
+
+resize(); build();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

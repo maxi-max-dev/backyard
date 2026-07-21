@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Petri</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#efe8da;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#463222;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0;background:#efe8da;touch-action:none}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none;
+    text-shadow:0 0 7px #f4eee2,0 0 14px #f4eee2,0 0 26px rgba(244,238,226,.95)}
+  .title b{font-size:25px;font-weight:800;letter-spacing:4px;color:#33231a}
+  .title span{display:block;font-size:12px;opacity:.62;margin-top:4px;font-weight:600;letter-spacing:1px}
+  .dock{position:fixed;left:0;right:0;bottom:16px;z-index:6;display:flex;flex-direction:column;
+    align-items:center;gap:10px;pointer-events:none}
+  .bar{pointer-events:auto;
+    display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:96vw;
+    background:rgba(250,245,235,.72);border:1px solid rgba(90,62,40,.18);
+    padding:7px 10px;border-radius:16px;backdrop-filter:blur(12px);
+    box-shadow:0 4px 18px rgba(90,62,40,.10)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#4a3524;
+    border:1px solid rgba(90,62,40,.18);background:rgba(255,255,255,.55);
+    padding:7px 11px;border-radius:12px;cursor:pointer;white-space:nowrap;line-height:1.25;
+    display:flex;align-items:center;gap:6px;transition:transform .08s,background .15s}
+  .bar button:active{transform:translateY(1px)}
+  .bar button .d{width:10px;height:10px;border-radius:50%;display:inline-block;
+    background:#b9a58a;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
+  .bar button.on{background:#3d2a1c;border-color:transparent;color:#f6efe2}
+  .bar button.on .d{box-shadow:inset 0 0 0 1px rgba(255,255,255,.35)}
+  .bar .sep{width:1px;height:20px;background:rgba(90,62,40,.18);margin:0 2px}
+  .hint{font-size:13px;font-weight:600;opacity:.75;transition:opacity .6s;white-space:nowrap;
+    text-shadow:0 0 6px #f4eee2,0 0 12px #f4eee2,0 1px 10px rgba(244,238,226,.95)}
+  /* 390px portrait: keep all five on one row */
+  @media (max-width:430px){
+    .bar{gap:4px;padding:6px 7px}
+    .bar button{font-size:12px;padding:6px 8px;gap:4px}
+    .bar button .d{width:8px;height:8px}
+    .bar .sep{margin:0;height:18px}
+    .title b{font-size:22px}
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>Petri</b><span>draw a line, give it a sec</span></div>
+<div class="dock">
+  <div class="hint" id="hint">🖐 swipe across the dish, watch it spread on its own</div>
+  <div class="bar">
+    <button data-m="0"><i class="d" style="background:#6b4526"></i>Dots</button>
+    <button data-m="1"><i class="d" style="background:#2e211a"></i>Zebra</button>
+    <button data-m="2" class="on"><i class="d" style="background:#9c6b3c"></i>Coral</button>
+    <button data-m="3"><i class="d" style="background:#4a3020"></i>Split</button>
+    <span class="sep"></span>
+    <button id="wash">🫧 Rinse</button>
+  </div>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d',{alpha:false});
+const hintEl=document.getElementById('hint');
+
+/* ---------- Gray-Scott field ---------- */
+// Du/Dv set the pattern's length scale. Locked by eye: below ~0.25 the wavelength
+// drops under 3 cells and the lattice shows through as square blobs.
+let Du=0.35, Dv=0.175;
+// Each pair was run to 12000+ iterations here and checked by eye. Do not nudge:
+// past k≈0.065 at low F the whole dish decays to nothing and never comes back.
+const MODES=[
+  // Named for what it actually makes: an even lattice of round dots. It was called
+  // leopard once, but Gray-Scott at one length scale cannot do rosettes — the spots come
+  // out regular and unbroken, nothing like a leopard. Don't rename it back.
+  {n:'Dots', F:0.030, k:0.062 },
+  {n:'Zebra', F:0.030, k:0.057 },
+  {n:'Coral', F:0.055, k:0.062 },
+  {n:'Split', F:0.042, k:0.064 }
+];
+let mode=2, curF=0.055, curK=0.062, fromF=curF, fromK=curK, ramp=1;
+function setMode(m){ fromF=curF; fromK=curK; mode=m; ramp=0; }
+
+let N=0, U,V,Ut,Vt, XM,XP,YM,YP;
+let off=null, octx=null, img=null, px=null;
+
+function alloc(n){
+  N=n; const s=n*n;
+  U=new Float32Array(s); V=new Float32Array(s);
+  Ut=new Float32Array(s); Vt=new Float32Array(s);
+  XM=new Int32Array(n); XP=new Int32Array(n); YM=new Int32Array(n); YP=new Int32Array(n);
+  for(let i=0;i<n;i++){ XM[i]=(i-1+n)%n; XP[i]=(i+1)%n; YM[i]=((i-1+n)%n)*n; YP[i]=((i+1)%n)*n; }
+  off=document.createElement('canvas'); off.width=n; off.height=n;
+  octx=off.getContext('2d'); img=octx.createImageData(n,n);
+  px=new Uint32Array(img.data.buffer);
+}
+function wipe(){ U.fill(1); V.fill(0); }
+function blob(cx,cy,r){
+  const r2=r*r;
+  for(let dy=-r;dy<=r;dy++){ const y=((cy+dy)%N+N)%N, yo=y*N;
+    for(let dx=-r;dx<=r;dx++){ const d2=dx*dx+dy*dy; if(d2>r2) continue;
+      const x=((cx+dx)%N+N)%N; const i=yo+x;
+      const f=d2<r2*0.45?1:1-(Math.sqrt(d2)-r*0.67)/(r*0.33)*0.45;
+      if(f>V[i]) V[i]=f;
+    }
+  }
+}
+function sprinkle(k){ for(let i=0;i<k;i++) blob((Math.random()*N)|0,(Math.random()*N)|0,4+((Math.random()*4)|0)); }
+
+/* ---------- one simulation iteration (wrapped boundary) ---------- */
+function iterate(F,k){
+  const n=N, u=U, v=V, un=Ut, vn=Vt;
+  for(let y=0;y<n;y++){
+    const yc=y*n, yu=YM[y], yd=YP[y];
+    for(let x=0;x<n;x++){
+      const xl=XM[x], xr=XP[x], i=yc+x;
+      const uc=u[i], vc=v[i];
+      const lu=0.2*(u[yc+xl]+u[yc+xr]+u[yu+x]+u[yd+x])
+             +0.05*(u[yu+xl]+u[yu+xr]+u[yd+xl]+u[yd+xr]) - uc;
+      const lv=0.2*(v[yc+xl]+v[yc+xr]+v[yu+x]+v[yd+x])
+             +0.05*(v[yu+xl]+v[yu+xr]+v[yd+xl]+v[yd+xr]) - vc;
+      const r=uc*vc*vc;
+      let nu=uc+Du*lu-r+F*(1-uc);
+      let nv=vc+Dv*lv+r-(F+k)*vc;
+      un[i]=nu<0?0:(nu>1?1:nu);
+      vn[i]=nv<0?0:(nv>1?1:nv);
+    }
+  }
+  let t=U; U=Ut; Ut=t; t=V; V=Vt; Vt=t;
+}
+
+/* ---------- colour LUT: warm paper -> deep umber -> near black ---------- */
+const LUT=new Uint32Array(256);
+(function buildLUT(){
+  const stops=[[0.00,244,238,226],[0.16,232,216,186],[0.46,138,84,44],[1.00,26,18,13]];
+  for(let i=0;i<256;i++){
+    const s=i/255; let a=stops[0],b=stops[stops.length-1];
+    for(let j=0;j<stops.length-1;j++){ if(s>=stops[j][0]&&s<=stops[j+1][0]){a=stops[j];b=stops[j+1];break;} }
+    let t=(s-a[0])/(b[0]-a[0]||1); t=t*t*(3-2*t);
+    const r=(a[1]+(b[1]-a[1])*t)|0, g=(a[2]+(b[2]-a[2])*t)|0, bl=(a[3]+(b[3]-a[3])*t)|0;
+    LUT[i]=(255<<24)|(bl<<16)|(g<<8)|r;
+  }
+})();
+
+/* ---------- layout (display only — never touches the field) ---------- */
+let W=0,H=0,dpr=1,scale=1,ox=0,oy=0,vig=null;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  layout();
+  vig=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.hypot(W,H)/2);
+  vig.addColorStop(0,'rgba(70,45,25,0)');
+  vig.addColorStop(0.52,'rgba(70,45,25,0)');
+  vig.addColorStop(0.80,'rgba(70,45,25,0.10)');
+  vig.addColorStop(1,'rgba(52,32,16,0.26)');
+}
+function layout(){ scale=Math.max(W/N,H/N); ox=(W-N*scale)/2; oy=(H-N*scale)/2; }
+
+/* ---------- render ---------- */
+function draw(){
+  const v=V, n=N*N;
+  for(let i=0;i<n;i++){
+    let t=v[i]*640; px[i]=LUT[t>255?255:(t|0)];
+  }
+  octx.putImageData(img,0,0);
+  ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+  ctx.fillStyle='#f4eee2'; ctx.fillRect(0,0,W,H);
+  ctx.drawImage(off,ox,oy,N*scale,N*scale);
+  ctx.fillStyle=vig; ctx.fillRect(0,0,W,H);
+}
+
+/* ---------- brush ---------- */
+let down=false, px0=-1, py0=-1, pend=null;
+// The field wraps, so a pointer dragged past the edge of the window would land back
+// on the far side and paint ink out of nowhere. Points outside the dish lift the pen.
+function toGrid(cx,cy){
+  const gx=(cx-ox)/scale, gy=(cy-oy)/scale;
+  return (gx<0||gy<0||gx>=N||gy>=N)?null:[gx,gy];
+}
+function paintAt(gx,gy){ blob(Math.round(gx),Math.round(gy),6); }
+function paintLine(x0,y0,x1,y1){
+  const d=Math.hypot(x1-x0,y1-y0), steps=Math.max(1,Math.ceil(d/3));
+  for(let i=1;i<=steps;i++) paintAt(x0+(x1-x0)*i/steps, y0+(y1-y0)*i/steps);
+}
+
+/* ---------- life support: never let the dish go empty ---------- */
+let lifeTick=0, LIFE=true;
+function lifeSupport(){
+  if(!LIFE) return false;
+  let s=0; const v=V, n=N*N;
+  for(let i=0;i<n;i+=3) s+=v[i];
+  const mean=s/(n/3);
+  if(mean<0.0012){ sprinkle(2+((Math.random()*2)|0)); return true; }
+  return false;
+}
+
+/* ---------- opening: let the sparse stage breathe ---------- */
+// A few colonies alone on bare paper is the best-looking thing this toy does, and at
+// full speed it is over in about three seconds. After seeding, run at a third speed
+// for ~10s so the dish is worth sitting and watching. The first touch cancels it, so
+// anyone who came to draw never waits.
+const SLOW=600; let slow=0;
+
+/* ---------- adaptive quality ---------- */
+let ITER=10, BASE=10, ADAPT=true, times=[], ti=0, cool=0;
+function adapt(ms){
+  if(!ADAPT) return;
+  times[ti++%30]=ms; if(times.length<30) return;
+  if(cool>0){ cool--; return; }
+  let s=0; for(const t of times) s+=t; const avg=s/times.length;
+  if(avg>22 && ITER>4){ ITER--; cool=30; }
+  else if(avg>30 && ITER<=4 && N>160){ downscale(160); cool=60; }
+  else if(avg<13 && ITER<BASE){ ITER++; cool=30; }
+}
+function downscale(n2){
+  const oU=U,oV=V,oN=N;
+  alloc(n2);
+  for(let y=0;y<n2;y++){ const sy=((y*oN/n2)|0)*oN, dy=y*n2;
+    for(let x=0;x<n2;x++){ const sx=(x*oN/n2)|0; U[dy+x]=oU[sy+sx]; V[dy+x]=oV[sy+sx]; }
+  }
+  layout();
+}
+
+/* ---------- loop ---------- */
+function simulate(){
+  if(pend){ if(px0<0){px0=pend[0];py0=pend[1];} paintLine(px0,py0,pend[0],pend[1]); px0=pend[0]; py0=pend[1]; pend=null; }
+  // Slide (F,k) to the new preset over ~1.5s instead of jumping. A jump shocks a
+  // dense dish into total collapse; the straight line between any two presets
+  // stays inside living territory, so structures re-differentiate on the spot.
+  if(ramp<1){ ramp=Math.min(1,ramp+1/90); curF=fromF+(MODES[mode].F-fromF)*ramp; curK=fromK+(MODES[mode].k-fromK)*ramp; }
+  let it=ITER; if(slow>0){ slow--; it=3; }
+  for(let i=0;i<it;i++) iterate(curF,curK);
+  if(++lifeTick>=30){ lifeTick=0; lifeSupport(); }
+}
+function frame(){
+  const t0=performance.now();
+  simulate(); draw();
+  // A slowed frame does less work, so feeding it to adapt() would fake a fast machine.
+  if(slow<=0) adapt(performance.now()-t0);   // times our own work, not the compositor's
+  requestAnimationFrame(frame);
+}
+
+/* ---------- input ---------- */
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault(); try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  down=true; slow=0;   // came to draw, not to watch: back to full speed at once
+  const g=toGrid(e.clientX,e.clientY); if(g){px0=g[0]; py0=g[1];} pend=g; hideHint();
+});
+cv.addEventListener('pointermove',e=>{ if(!down) return;
+  const g=toGrid(e.clientX,e.clientY);
+  if(!g){ px0=-1; py0=-1; pend=null; return; }   // left the dish: lift, resume fresh on re-entry
+  pend=g; });
+function up(){ down=false; px0=-1; py0=-1; }
+cv.addEventListener('pointerup',up); cv.addEventListener('pointercancel',up);
+window.addEventListener('resize',resize);
+
+let hintGone=false; function hideHint(){ if(hintGone)return; hintGone=true; hintEl.style.opacity=0; }
+const btns=[...document.querySelectorAll('.bar button[data-m]')];
+btns.forEach(b=>b.addEventListener('click',()=>{
+  setMode(+b.dataset.m); btns.forEach(o=>o.classList.toggle('on',o===b)); hideHint();
+}));
+document.getElementById('wash').addEventListener('click',()=>{
+  // Seed generously: fronts spread from wherever they start, so a couple of specks
+  // leave the dish nearly empty for ~20s. Eight-ish colonies repopulate in a third of that.
+  wipe(); blob(N>>1,N>>1,7); sprinkle(8); slow=SLOW; hideHint();
+});
+
+/* ---------- boot ---------- */
+alloc((window.innerWidth<560||window.innerHeight<560)?140:200);
+// Same generous seeding as Rinse: scattered colonies on bare paper read far better than
+// one clump in the middle, and they are what the slow opening is there to show off.
+wipe(); blob(N>>1,N>>1,7); sprinkle(8);
+resize();
+for(let i=0;i<700;i++) iterate(curF,curK); // arrive already growing, still sparse
+slow=SLOW;
+requestAnimationFrame(frame);
+
+/* ---------- test hooks (headless lane runs at 1-4fps; step by hand) ---------- */
+window.__tick=(n)=>{ for(let i=0;i<n;i++) simulate(); draw(); };
+window.__adapt=(b)=>{ ADAPT=b; times=[]; ti=0; };
+window.__setIter=(n)=>{ ITER=BASE=n; };
+window.__diff=(du,dv)=>{ Du=du; Dv=dv; };
+window.__life=(b)=>{ LIFE=b; };
+window.__slow=(n)=>{ if(n!==undefined) slow=n; return slow; };
+window.__forceAdapt=(ms,n)=>{ ADAPT=true; for(let i=0;i<n;i++){ adapt(ms); } return {ITER:ITER,N:N}; };
+window.__save=()=>({u:U.slice(),v:V.slice()});
+window.__restore=(s)=>{ U.set(s.u); V.set(s.v); };
+window.__fk=(F,k,snap)=>{ MODES[mode].F=F; MODES[mode].k=k; if(snap!==false){curF=F;curK=k;ramp=1;} else {fromF=curF;fromK=curK;ramp=0;} };
+window.__paint=(gx,gy)=>{ paintAt(gx,gy); };
+window.__mode=(m)=>{ btns[m].click(); };
+window.__modeNow=(m)=>{ btns[m].click(); ramp=1; curF=MODES[m].F; curK=MODES[m].k; };
+window.__stats=()=>{
+  let s=0,mx=0,nan=0; const v=V,u=U,n=N*N;
+  for(let i=0;i<n;i++){ const q=v[i]; if(q!==q||u[i]!==u[i]) nan++; s+=q; if(q>mx) mx=q; }
+  return {N:N,ITER:ITER,mode:MODES[mode].n,meanV:s/n,maxV:mx,nan:nan,W:W,H:H,scale:+scale.toFixed(3)};
+};
+window.__bench=()=>{ const t=performance.now(); for(let i=0;i<10;i++) iterate(0.055,0.062); return +(performance.now()-t).toFixed(2); };
+})();
+</script>
+</body>
+</html>

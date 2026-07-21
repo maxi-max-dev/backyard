@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>River</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#0b0d10;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#e2d8c8;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:14px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:20px;font-weight:800;letter-spacing:4px;text-shadow:0 2px 8px rgba(0,0,0,.7)}
+  .title span{display:block;font-size:12px;opacity:.55;margin-top:3px;font-weight:600;text-shadow:0 1px 5px rgba(0,0,0,.7)}
+  .meter{position:fixed;top:16px;right:16px;z-index:5;pointer-events:none;font-size:11px;font-weight:700;
+    opacity:.42;letter-spacing:.5px;text-align:right;text-shadow:0 1px 5px rgba(0,0,0,.8)}
+  .meter i{font-style:normal;opacity:.65;font-weight:600}
+  .gauge{margin:7px 0 0 auto;width:92px;height:5px;border-radius:3px;background:rgba(226,216,200,.16);
+    overflow:hidden;opacity:0;transition:opacity .45s}
+  .gauge u{display:block;height:100%;width:0;border-radius:3px;
+    background:linear-gradient(90deg,#3d7f9e,#93d8ee);transition:width .18s}
+  .glab{font-size:10px;opacity:0;transition:opacity .45s;margin-top:3px;font-weight:600}
+  .dock{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;flex-direction:column;align-items:center;
+    gap:7px;padding:9px 10px calc(11px + env(safe-area-inset-bottom));
+    background:linear-gradient(to top,rgba(8,10,13,.92),rgba(8,10,13,.72) 62%,rgba(8,10,13,0))}
+  .hint{font-size:12.5px;font-weight:600;opacity:.6;text-align:center;transition:opacity .5s;white-space:nowrap;
+    text-shadow:0 1px 5px rgba(0,0,0,.8)}
+  .bar{display:flex;gap:7px;justify-content:center;flex-wrap:nowrap;width:100%;max-width:430px}
+  .bar button{flex:1 1 0;min-width:0;min-height:44px;font:inherit;font-weight:700;font-size:13px;color:#e2d8c8;
+    border:1.5px solid rgba(190,165,120,.22);background:rgba(38,34,30,.78);padding:6px 4px;border-radius:12px;
+    cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;
+    transition:transform .07s,background .15s,border-color .15s;position:relative;overflow:hidden}
+  .bar button:active{transform:translateY(1px)}
+  .bar button.sel{background:rgba(120,96,62,.85);border-color:rgba(232,205,150,.75);color:#fff3dd}
+  .bar button svg{flex:0 0 auto;display:block}
+  .bar button .fill{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(210,110,80,.45);pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>river</b><span>drag your finger, the water changes course</span></div>
+<div class="meter">eroded <b id="ero">0.0</b> <i>mm</i>
+  <div class="gauge" id="gauge"><u id="gfill"></u></div>
+  <div class="glab" id="glab">behind the dam</div>
+</div>
+<div class="dock">
+  <div class="hint" id="hint">🖐️ drag across the slope to build a dam, see what the water does</div>
+  <div class="bar">
+    <button id="bRaise" class="sel">
+      <svg width="19" height="15" viewBox="0 0 19 15"><path d="M1 13.2h17" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none" opacity=".5"/><path d="M2.5 13.2C5 13.2 6.2 4.2 9.5 4.2s4.6 9 7 9z" fill="currentColor" opacity=".85"/><path d="M9.5 3.4V.8M9.5.4 7.9 2.4M9.5.4l1.6 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      raise</button>
+    <button id="bDig">
+      <svg width="19" height="15" viewBox="0 0 19 15"><path d="M1 2.4h5.4c2.6 0 2.4 8.6 3.1 8.6s.5-8.6 3.1-8.6H18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity=".85"/><path d="M9.5 11.6v2.6M9.5 14.6l-1.6-2M9.5 14.6l1.6-2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      dig</button>
+    <button id="bReset"><span class="fill" id="rFill"></span>↺ reset<span style="opacity:.5;font-size:11px">hold</span></button>
+  </div>
+</div>
+<script>
+(()=>{
+'use strict';
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d',{alpha:false});
+const hintEl=document.getElementById('hint'), eroEl=document.getElementById('ero');
+const gaugeEl=document.getElementById('gauge'), gfillEl=document.getElementById('gfill'), glabEl=document.getElementById('glab');
+
+let W=0,H=0,dispH=0,dockH=96,MOB=false;
+let gw=0,gh=0,N=0;
+let T,Wt,Sed,SedT,fL,fR,fT,fB,velU,velV;
+let img,oc,octx;
+let cloudX=0.5, cloudGY=0;         // 云的水平位置(0..1) 与 降雨中心格子行
+let eroded=0, breaches=0, shake=0, burst=0, simTime=0;
+let seed=Math.floor(Math.random()*1e9);
+
+// ---------- 参数 ----------
+const SEA=0.0;                     // 海平面高度
+let DT=1/30, SS=1;                 // 步长 与 归一化系数(相对30Hz)
+const G=9.81, LEN=1.0;
+let AREA=16.0;                      // 管道截面：决定水流对坡度的响应强度
+let FDAMP=0.98;                    // 流量阻尼=摩擦。没有它，水面只会摊平成湖，永远不成河
+const FLUX_MAX=0.35;               // 单管流量硬顶(只当防爆保险，真正限流的是体积守恒缩放)
+const WMIN=0.0055;                 // 速度分母下限
+const VMAX=3.2;                    // 速度硬顶
+let Kc=4.5e-4;                     // 挟沙容量系数
+const Ks=0.30, Kd=0.42;            // 溶蚀/沉积速率(每步比例)
+let KEVAP=0.0003;                  // 蒸发(每步比例)
+const MAXDH=0.0011;                // 单步单格高度变化硬顶 —— 防棋盘噪点的第一道闸
+let RAIN=5.0e-5;                   // 云心降雨量/步
+const WERO=0.0009;                 // 水量→容量的爬升尺度；必须远小于漫坝水深，否则溃坝永不发生
+const MINSLOPE=0.05, MAXSLOPE=0.42;// 坡度钳制 —— 防自激放大的第三道闸
+const TALUS=0.055;                 // 休止角：超过就塌方，专杀单格尖刺
+const VE=42;                       // 坡度垂直放大(视觉+侵蚀共用尺度)
+// 过流量放大：实测毙掉了。溃坝口 q 峰值 0.35，主河道平时就有 0.30 —— 只差 1.17 倍，
+// 因为主河道早就顶到 FLUX_MAX 了。开大它只会把整条河一起放大成方块峡谷(实测 sat 416/全图吃满上限)。
+let QK=0;
+const QCAP=14;                     // 过流量放大上限
+const HOT=2.2e-4;                  // 「猛切」单格阈值(实测定的，不是拍脑袋)
+const SAT_MIN=14;                  // 溃坝判定：至少这么多格同时被切到上限
+const MMSCALE=0.12;                // 侵蚀量→毫米读数
+let REL=0.46;                      // 地形起伏幅度(可调，验收时用)
+
+// ---------- 噪声(自带 value noise, 零依赖) ----------
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function makeNoise(sd){
+  const rnd=mulberry(sd), P=new Uint8Array(512), p=new Uint8Array(256);
+  for(let i=0;i<256;i++)p[i]=i;
+  for(let i=255;i>0;i--){const j=(rnd()*(i+1))|0;const t=p[i];p[i]=p[j];p[j]=t;}
+  for(let i=0;i<512;i++)P[i]=p[i&255];
+  const grad=(h,x,y)=>{const u=(h&1)?x:y,v=(h&2)?y:x;return((h&4)?-u:u)+((h&8)?-v:v)*0.6;};
+  const f=t=>t*t*t*(t*(t*6-15)+10);
+  return (x,y)=>{
+    const X=Math.floor(x)&255,Y=Math.floor(y)&255; x-=Math.floor(x); y-=Math.floor(y);
+    const u=f(x),v=f(y), A=P[X]+Y, B=P[X+1]+Y;
+    const l=(a,b,t)=>a+(b-a)*t;
+    return l(l(grad(P[A],x,y),grad(P[B],x-1,y),u), l(grad(P[A+1],x,y-1),grad(P[B+1],x-1,y-1),u), v);
+  };
+}
+
+// ---------- 地形生成 ----------
+function genTerrain(){
+  const n1=makeNoise(seed), n2=makeNoise(seed+7717), rnd=mulberry(seed+31);
+  const ox=rnd()*40, oy=rnd()*40;
+  // 噪声频率必须按画面长宽比换算，否则同一组数字在横屏是山谷、在竖屏就被抻成贯穿全屏的竖条纹。
+  // 这里固定「横向约 3 组山谷」并让沟谷顺坡方向拉长 1.78 倍，横竖屏地貌观感才一致。
+  const ar=Math.max(0.25,Math.min(4,(W||1280)/(dispH||700)));
+  const FX=3.0, FY=1.685/ar, SX=2.0, SY=1.12/ar;
+  for(let y=0;y<gh;y++){
+    const ny=y/(gh-1);
+    // 主坡：上高下低
+    let base=0.92*Math.pow(1-ny,1.15)-0.055;
+    // 海岸带：最后 8% 陡降入海，保证底部有一条常驻深蓝
+    if(ny>0.90) base-=(ny-0.90)*3.2;
+    const coast=Math.max(0,Math.min(1,(0.955-ny)/0.09)); // 近岸把起伏收掉
+    for(let x=0;x<gw;x++){
+      const nx=x/(gw-1);
+      let f=1, amp=1, sum=0, tot=0;
+      for(let o=0;o<5;o++){
+        const v=n1(ox+nx*FX*f, oy+ny*FY*f);
+        // ridged: 让山脊尖、谷底宽，天然生出汇水线
+        sum+=amp*(1-Math.abs(v)*1.7); tot+=amp; f*=2.03; amp*=0.52;
+      }
+      const ridged=sum/tot-0.42;                 // 去直流，只留起伏
+      const soft=n2(nx*SX+11, ny*SY+5);
+      // REL 是这个玩具的地貌命门：起伏必须压得住主坡的横向分量，水才会汇成谷而不是均匀铺下来
+      let h=base + (ridged*REL + soft*REL*0.5)*coast;
+      // 侧边抬高，水更愿意走中间
+      h += 0.055*Math.pow(Math.abs(nx-0.5)*2,2.6)*coast;
+      T[y*gw+x]=h;
+    }
+  }
+}
+
+// 填洼(Planchon-Darboux)：保证每一格都有一条通向大海的下坡路。
+// 没有这一步，ridged 噪声会造出成千上万个小坑，雨点落进去就再也出不来 —— 永远汇不成河。
+function fillDepressions(){
+  const INF=1e9, F=new Float32Array(N), eps=0.0013;
+  for(let i=0;i<N;i++) F[i]=(T[i]<=SEA)?T[i]:INF;   // 海是出水口
+  // 边界也当出水口，免得靠边的水被墙困住
+  for(let x=0;x<gw;x++){ F[x]=T[x]; F[(gh-1)*gw+x]=T[(gh-1)*gw+x]; }
+  for(let y=0;y<gh;y++){ F[y*gw]=T[y*gw]; F[y*gw+gw-1]=T[y*gw+gw-1]; }
+  const order=[[1,1],[-1,-1],[1,-1],[-1,1]];
+  for(let pass=0;pass<24;pass++){
+    let changed=0;
+    const d=order[pass&3];
+    for(let yy=0;yy<gh;yy++){
+      const y=d[1]>0?yy:gh-1-yy;
+      for(let xx=0;xx<gw;xx++){
+        const x=d[0]>0?xx:gw-1-xx;
+        const i=y*gw+x;
+        if(F[i]<=T[i]) continue;
+        let best=INF;
+        if(x>0&&F[i-1]<best)best=F[i-1];
+        if(x<gw-1&&F[i+1]<best)best=F[i+1];
+        if(y>0&&F[i-gw]<best)best=F[i-gw];
+        if(y<gh-1&&F[i+gw]<best)best=F[i+gw];
+        const cand=best+eps;
+        if(T[i]>=cand){ F[i]=T[i]; changed++; }
+        else if(cand<F[i]){ F[i]=cand; changed++; }
+      }
+    }
+    if(!changed) break;
+  }
+  for(let i=0;i<N;i++) if(F[i]<INF*0.5 && F[i]>T[i]) T[i]=F[i];
+}
+
+function alloc(){
+  N=gw*gh;
+  T=new Float32Array(N); Wt=new Float32Array(N); Sed=new Float32Array(N); SedT=new Float32Array(N);
+  fL=new Float32Array(N); fR=new Float32Array(N); fT=new Float32Array(N); fB=new Float32Array(N);
+  velU=new Float32Array(N); velV=new Float32Array(N);
+  builtAmt=new Float32Array(N); builtRef=new Float32Array(N); builtFlag=new Uint8Array(N); builtList=[]; builtTotal=0;
+  builtRowSum=0; pondY0=pondY1=0; lakePeak=0; lakeVol=0; lakeTrough=1e9; armed=true;   // 换网格后行号全变了，旧的坝前水域记录必须作废
+  oc=document.createElement('canvas'); oc.width=gw; oc.height=gh;
+  octx=oc.getContext('2d'); img=octx.createImageData(gw,gh);
+  for(let i=3;i<img.data.length;i+=4) img.data[i]=255;
+}
+
+function reset(newSeed){
+  if(newSeed) seed=Math.floor(Math.random()*1e9);
+  T.fill(0);Wt.fill(0);Sed.fill(0);fL.fill(0);fR.fill(0);fT.fill(0);fB.fill(0);velU.fill(0);velV.fill(0);
+  genTerrain();
+  fillDepressions();
+  eroded=0; breaches=0; simTime=0; shake=0; burst=0; breachCool=0; clearBuild();
+  cloudX=0.5; cloudGY=Math.round(gh*(MOB?0.20:0.13));
+  warm(MOB?260:420);       // 进场即活：预跑，水已成流
+  eroded=0;                // 预跑的侵蚀不计入读数
+}
+
+// ---------- 模拟一步 ----------
+function simStep(){
+  simTime+=DT;
+  const cx=cloudX*(gw-1), cy=cloudGY;
+  const sx=gw*0.075, sy=gh*0.105, i2x=1/(2*sx*sx), i2y=1/(2*sy*sy);
+  const x0=Math.max(0,(cx-sx*3.2)|0), x1=Math.min(gw-1,(cx+sx*3.2)|0);
+  const y0=Math.max(0,(cy-sy*3.2)|0), y1=Math.min(gh-1,(cy+sy*3.2)|0);
+  // 1) 降雨（只在云下，别处不下 —— 全域降雨会让每一格都自己挖沟，画面必噪）
+  for(let y=y0;y<=y1;y++){ const dy=y-cy, ey=dy*dy*i2y;
+    for(let x=x0;x<=x1;x++){ const dx=x-cx;
+      // 乘 SS：手机跑 20Hz、桌面 30Hz，别的速率项都按 SS 归一化过了，唯独降雨没有 ——
+      // 结果手机每秒只落到桌面 2/3 的雨，湖蓄得慢 1.5 倍，溃坝经常等不到。
+      Wt[y*gw+x]+=RAIN*SS*Math.exp(-(dx*dx*i2x+ey)); } }
+
+  // 2) 四邻通量 (out-flux pipes) + 体积守恒缩放
+  const acc=DT*AREA*G/LEN;
+  for(let y=0;y<gh;y++){
+    for(let x=0;x<gw;x++){
+      const i=y*gw+x, hi=T[i]+Wt[i];
+      let l=0,r=0,t=0,b=0;
+      if(x>0){ const d=hi-(T[i-1]+Wt[i-1]); l=fL[i]*FDAMP+acc*d; if(l<0)l=0; else if(l>FLUX_MAX)l=FLUX_MAX; }
+      if(x<gw-1){ const d=hi-(T[i+1]+Wt[i+1]); r=fR[i]*FDAMP+acc*d; if(r<0)r=0; else if(r>FLUX_MAX)r=FLUX_MAX; }
+      if(y>0){ const d=hi-(T[i-gw]+Wt[i-gw]); t=fT[i]*FDAMP+acc*d; if(t<0)t=0; else if(t>FLUX_MAX)t=FLUX_MAX; }
+      if(y<gh-1){ const d=hi-(T[i+gw]+Wt[i+gw]); b=fB[i]*FDAMP+acc*d; if(b<0)b=0; else if(b>FLUX_MAX)b=FLUX_MAX; }
+      const out=(l+r+t+b)*DT;
+      if(out>1e-12){
+        const cap=Wt[i]*LEN*LEN;
+        if(out>cap){ const k=cap/out; l*=k;r*=k;t*=k;b*=k; }
+      }
+      fL[i]=l; fR[i]=r; fT[i]=t; fB[i]=b;
+    }
+  }
+  // 3) 水量更新 + 速度场
+  for(let y=0;y<gh;y++){
+    for(let x=0;x<gw;x++){
+      const i=y*gw+x;
+      const inL=x>0?fR[i-1]:0, inR=x<gw-1?fL[i+1]:0;
+      const inT=y>0?fB[i-gw]:0, inB=y<gh-1?fT[i+gw]:0;
+      const outv=fL[i]+fR[i]+fT[i]+fB[i];
+      const w0=Wt[i];
+      let w1=w0+DT*(inL+inR+inT+inB-outv);
+      if(!(w1>0)) w1=0; else if(w1>1.2) w1=1.2;
+      const avg=Math.max((w0+w1)*0.5, WMIN);
+      let u=((inL-fL[i])+(fR[i]-inR))*0.5/(LEN*avg);
+      let v=((inT-fT[i])+(fB[i]-inB))*0.5/(LEN*avg);
+      if(u>VMAX)u=VMAX; else if(u<-VMAX)u=-VMAX;
+      if(v>VMAX)v=VMAX; else if(v<-VMAX)v=-VMAX;
+      velU[i]=u; velV[i]=v; Wt[i]=w1;
+    }
+  }
+  // 4) 侵蚀 / 沉积
+  let stepEro=0, maxDrop=0, satCells=0;
+  for(let y=1;y<gh-1;y++){
+    for(let x=1;x<gw-1;x++){
+      const i=y*gw+x;
+      const w=Wt[i];
+      // 关键：坡度取「水面」而不是「地面」。
+      // 用地面坡度时，坝顶自己是个局部脊(地面平)→容量低→反而在坝顶淤积，坝越冲越高，溃坝永远不发生。
+      // 水面坡度才是真正推动侵蚀的水力梯度：湖里水面平(不冲)，翻坝那几格水面陡跌(猛冲)。
+      const sL=T[i-1]+Wt[i-1], sR=T[i+1]+Wt[i+1], sU=T[i-gw]+Wt[i-gw], sD=T[i+gw]+Wt[i+gw];
+      const gx=(sR-sL)*0.5*VE, gy=(sD-sU)*0.5*VE;
+      const gl=Math.sqrt(gx*gx+gy*gy);
+      let sin=gl/Math.sqrt(1+gl*gl);
+      if(sin<MINSLOPE)sin=MINSLOPE; else if(sin>MAXSLOPE)sin=MAXSLOPE;
+      const sp=Math.sqrt(velU[i]*velU[i]+velV[i]*velV[i]);
+      // 水量对容量的影响。这里的阈值卡得太高会直接杀死溃坝：
+      // 漫坝那层水只有 ~0.0006 深，却是流速最快坡最陡的一层，正是它该把坝切开。
+      // 所以「防干地爆炸」的下限必须压到远小于漫坝水深，只挡真正的干地。
+      // 深水抑制只留给真正的湖和海：原来的 0.02/(w+0.008) 会在口子刚切深、水变深时反过来压制侵蚀，
+      // 正好掐死溃坝需要的正反馈。流速项已经是 v^2，静水本来就不冲，这里不必再罚一次。
+      const df=Math.min(1,w/WERO)*Math.min(1,0.09/(w+0.03));
+      // 容量对流速取平方(剪切应力 ~ v^2)：
+      // 线性时「普通河道」和「漫坝口」只差 4 倍，全图一起吃满上限；平方后差 ~15 倍，
+      // 普通河道温吞、漫坝口才切到上限 —— 溃坝这条链才有对比度。
+      // 过流量因子：真实溃坝是被「流量」放大的 —— 口子越深、湖里水头越大、过的水越多、切得越快。
+      // 只靠流速做不到，因为流速被 VMAX 钳住了，正反馈一到顶就熄火，坝只会被匀速磨平而不是垮掉。
+      // 普通小溪流量很小，所以这一项几乎只在溃坝口起作用。
+      const q=fL[i]+fR[i]+fT[i]+fB[i];
+      const qf=1+Math.min(QCAP,q*QK);
+      let cap=Kc*sin*sp*sp*df*qf;   // 注意：不乘 SS。cap 是容量(状态)，只有下面的速率项才随步长缩放
+      if(cap<0)cap=0; else if(cap>0.02)cap=0.02;
+      const s=Sed[i];
+      if(cap>s){
+        let d=Ks*(cap-s)*SS; if(d>MAXDH)d=MAXDH;
+        T[i]-=d; Sed[i]=s+d; stepEro+=d; if(d>maxDrop)maxDrop=d;
+        if(d>HOT) satCells++;         // 正在被猛切的格子数
+      }else{
+        let d=Kd*(s-cap)*SS; if(d>MAXDH)d=MAXDH; if(d>s)d=s;
+        T[i]+=d; Sed[i]=s-d;
+      }
+    }
+  }
+  eroded+=stepEro;
+  // 4.5) 塌方(休止角)：超过 TALUS 的落差就滑一点下去。
+  //      这一步是画面干净与否的命门 —— 没有它，侵蚀会自激出一格宽的棋盘格尖刺。
+  if((slumpPhase=(slumpPhase+1)%3)===0){
+    for(let y=1;y<gh-1;y++){
+      for(let x=1;x<gw-1;x++){
+        const i=y*gw+x, h=T[i];
+        let dmax=0, jm=-1;
+        let d=h-T[i-1]; if(d>dmax){dmax=d;jm=i-1;}
+        d=h-T[i+1]; if(d>dmax){dmax=d;jm=i+1;}
+        d=h-T[i-gw]; if(d>dmax){dmax=d;jm=i-gw;}
+        d=h-T[i+gw]; if(d>dmax){dmax=d;jm=i+gw;}
+        if(jm>=0&&dmax>TALUS){
+          let mv=(dmax-TALUS)*0.28; if(mv>MAXDH*2)mv=MAXDH*2;
+          T[i]-=mv; T[jm]+=mv;
+        }
+      }
+    }
+  }
+  // 5) 泥沙平流 (半拉格朗日回溯)
+  const ADV=DT*22;
+  for(let y=0;y<gh;y++){
+    for(let x=0;x<gw;x++){
+      const i=y*gw+x;
+      let px=x-velU[i]*ADV, py=y-velV[i]*ADV;
+      if(px<0)px=0; else if(px>gw-1.001)px=gw-1.001;
+      if(py<0)py=0; else if(py>gh-1.001)py=gh-1.001;
+      const ix=px|0, iy=py|0, fx=px-ix, fy=py-iy, j=iy*gw+ix;
+      const x2=ix<gw-1?1:0, y2=iy<gh-1?gw:0;
+      SedT[i]=(Sed[j]*(1-fx)+Sed[j+x2]*fx)*(1-fy)+(Sed[j+y2]*(1-fx)+Sed[j+y2+x2]*fx)*fy;
+    }
+  }
+  Sed.set(SedT);
+  // 6) 蒸发 + 海平面钳制(海=无限水汇)
+  //    顺手统计「湖」：陆地上积起来的深水。河道是薄薄一层(<0.02)，只有被拦住的水才够深。
+  //    这个量就是玩家眼里的「水位」，也是溃坝判据的信号源。
+  //    只数「坝上游那一段」的深水：全图统计会被河谷和海岸的自然积水淹没(实测挂机 6 分钟从 13 涨到 125)，
+  //    而坝前那一块水域是玩家亲手造出来的，信号干净。没堆过东西就根本不统计 —— 误触发在结构上不可能。
+  const ev=1-KEVAP*SS;
+  let lakeAcc=0;
+  const y0p=pondY0, y1p=pondY1;
+  for(let i=0;i<N;i++){
+    const d=SEA-T[i];
+    if(d>0){ Wt[i]=Wt[i]<d?d:Wt[i]; }   // 海：无限水汇，不蒸发
+    else Wt[i]*=ev;
+  }
+  if(y1p>y0p){
+    for(let y=y0p;y<y1p;y++){ const b=y*gw;
+      for(let x=0;x<gw;x++){ const w=Wt[b+x]; if(w>0.02 && T[b+x]>SEA) lakeAcc+=w; } }
+  }
+  lakeVol=lakeAcc;
+  lastSat=satCells; lastStepEro=stepEro; lastMaxDrop=maxDrop;
+  detectBreach();
+}
+
+// ---------- 溃坝事件 ----------
+// 全图统计量抓不到溃坝：背景侵蚀把信号淹了(实测基线 230~260 格、溃坝峰值 338，对比度只有 1.3 倍)。
+// 但有一件事只有我们知道 —— 玩家把土堆在哪。
+// 所以直接盯玩家自己堆的那些土：它被冲走过半，就是「你的坝垮了」。判据精准，且天然不会被自然侵蚀误触发。
+let slumpPhase=0, lastSat=0, lastStepEro=0, lastMaxDrop=0;
+let breachCool=0, lastBreachT=0, lakeVol=0, lakePeak=0, lakeTrough=1e9, armed=true;
+let pondY0=0, pondY1=0;      // 「坝前水域」的行区间，跟着玩家堆土的位置走
+let builtAmt=null, builtRef=null, builtList=[], builtFlag=null, builtTotal=0, builtRowSum=0;
+function noteBuild(i,add){
+  if(builtFlag[i]===0){ builtFlag[i]=1; builtList.push(i); }
+  builtAmt[i]+=add; builtRef[i]=T[i]; builtTotal+=add;
+  builtRowSum+=(i/gw|0)*add;
+  updatePond();
+}
+function updatePond(){
+  if(builtTotal<=0){ pondY0=pondY1=0; return; }
+  const r=builtRowSum/builtTotal;                    // 坝的重心行
+  pondY1=Math.max(1,Math.min(gh-1,Math.round(r)));   // 坝所在行
+  pondY0=Math.max(0,pondY1-Math.round(gh*0.30));     // 往上游数三成屏幕
+}
+function clearBuild(){
+  for(const i of builtList){ builtFlag[i]=0; builtAmt[i]=0; }
+  builtList.length=0; builtTotal=0; builtRowSum=0; pondY0=pondY1=0; lakePeak=0; lakeVol=0; lakeTrough=1e9; armed=true;
+}
+function fireBreach(){ breaches++; breachCool=150; lastBreachT=simTime; shake=1; burst=1; boom(); }
+function detectBreach(){
+  if(breachCool>0) breachCool--;
+  if(builtTotal<0.35 || builtList.length===0) return;   // 太小的土堆不算坝，别乱响
+  // 判据一(主)：坝前那片水突然泄掉大半 —— 这才是玩家眼里的「垮了」。
+  // 原来只有判据二，而它拿 lost 跟「累计堆土量」比：坝堆得越厚门槛越高，
+  // 可缺口是局部的，永远切不到总量的一半。实测来回拖三遍的厚坝，
+  // 水位涨到 54 再泄到 14(真·溃坝)，事件却一次都没响。
+  if(lakeVol>lakePeak) lakePeak=lakeVol; else lakePeak*=(1-1.5e-4);
+  if(lakeVol<lakeTrough) lakeTrough=lakeVol;
+  // 上膛：垮过一次之后，水必须重新蓄起来才允许再响。
+  // 少了这一步，泄洪那几十秒里水位一路往下掉，同一场溃坝会被连报三四次。
+  if(!armed && lakeVol>lakeTrough*1.5+2){ armed=true; lakePeak=lakeVol; }
+  if(armed && lakePeak>5 && lakeVol<lakePeak*0.6 && breachCool===0){
+    fireBreach(); armed=false; lakeTrough=lakeVol;
+    return;
+  }
+  // 判据二(兜底)：蓄不出水面的小土堆，被冲走过半也算垮
+  let lost=0;
+  for(const i of builtList){
+    const d=builtRef[i]-T[i];
+    if(d>0) lost+=d<builtAmt[i]?d:builtAmt[i];
+  }
+  if(lost>builtTotal*0.5 && breachCool===0){
+    fireBreach();
+    clearBuild();                                       // 这道坝算交代了，让下一道能再触发
+  }
+}
+
+// ---------- 声音 ----------
+let AC=null;
+function unlockAudio(){ if(AC) return; try{ AC=new (window.AudioContext||window.webkitAudioContext)(); if(AC.state==='suspended')AC.resume(); }catch(e){ AC=null; } }
+function boom(){
+  if(!AC) return;
+  try{
+    const dur=1.5, sr=AC.sampleRate, buf=AC.createBuffer(1,(sr*dur)|0,sr), d=buf.getChannelData(0);
+    let lp=0;
+    for(let i=0;i<d.length;i++){ lp+=((Math.random()*2-1)-lp)*0.045; d[i]=lp*3.0; }
+    const src=AC.createBufferSource(); src.buffer=buf;
+    const f=AC.createBiquadFilter(); f.type='lowpass'; f.frequency.value=180; f.Q.value=0.8;
+    const g=AC.createGain(); const t0=AC.currentTime;
+    g.gain.setValueAtTime(0.0001,t0); g.gain.exponentialRampToValueAtTime(0.5,t0+0.06);
+    g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
+    f.frequency.setValueAtTime(240,t0); f.frequency.exponentialRampToValueAtTime(60,t0+dur);
+    src.connect(f); f.connect(g); g.connect(AC.destination); src.start(t0); src.stop(t0+dur);
+  }catch(e){}
+}
+
+function warm(n){ for(let i=0;i<n;i++) simStep(); }
+
+// ---------- 画笔 ----------
+let mode=1; // 1=堆土 -1=挖沟
+function brush(gx,gy,rad,amt,track){
+  if(track===undefined) track=true;
+  const r=Math.max(1.2,rad), i2=1/(2*(r*0.52)*(r*0.52));
+  const x0=Math.max(0,Math.ceil(gx-r)), x1=Math.min(gw-1,Math.floor(gx+r));
+  const y0=Math.max(0,Math.ceil(gy-r)), y1=Math.min(gh-1,Math.floor(gy+r));
+  for(let y=y0;y<=y1;y++){ const dy=y-gy;
+    for(let x=x0;x<=x1;x++){ const dx=x-gx, d2=dx*dx+dy*dy;
+      if(d2>r*r) continue;
+      const i=y*gw+x;
+      const before=T[i];
+      let h=before+amt*Math.exp(-d2*i2);
+      if(h>1.45)h=1.45; else if(h<-0.28)h=-0.28;
+      T[i]=h;
+      // 记账：玩家堆上去的土记下来，将来好判断「他的坝被冲走了没有」
+      const dh=h-before;
+      if(dh>0){ if(track) noteBuild(i,dh); }
+      else if(dh<0 && builtFlag[i]){ builtTotal-=builtAmt[i]; builtRowSum-=(i/gw|0)*builtAmt[i]; builtAmt[i]=0; builtFlag[i]=0; updatePond(); }
+    }
+  }
+}
+
+// ---------- 渲染 ----------
+function render(){
+  const D=img.data;
+  // 光照方向(左上)
+  const lx=-0.55, ly=-0.62, lz=0.56;
+  for(let y=0;y<gh;y++){
+    for(let x=0;x<gw;x++){
+      const i=y*gw+x;
+      const h=T[i];
+      // 山体阴影
+      const xm=x>0?i-1:i, xp=x<gw-1?i+1:i, ym=y>0?i-gw:i, yp=y<gh-1?i+gw:i;
+      const gx=(T[xp]-T[xm])*VE*0.5, gy=(T[yp]-T[ym])*VE*0.5;
+      const inv=1/Math.sqrt(gx*gx+gy*gy+1);
+      let sh=(-gx*lx-gy*ly+lz)*inv;
+      sh=0.42+sh*1.05; if(sh<0.28)sh=0.28; else if(sh>1.5)sh=1.5;
+      // 地表配色：低=暗褐 高=浅赭
+      let t=h/0.95; if(t<0)t=0; else if(t>1)t=1;
+      let r,g,b;
+      if(t<0.45){ const k=t/0.45; r=44+(104-44)*k; g=31+(74-31)*k; b=22+(45-22)*k; }
+      else{ const k=(t-0.45)/0.55; r=104+(198-104)*k; g=74+(166-74)*k; b=45+(116-45)*k; }
+      // 泥沙淤积略微发亮
+      const sd=Math.min(1,Sed[i]*260); r+=sd*26; g+=sd*20; b+=sd*8;
+      r*=sh; g*=sh; b*=sh;
+      // 水：只给「画」用一个平滑过的水深。
+      // 河道常常只有一格宽，逐格水深会上下跳，直接拿来上色河就变成一串断续的方块。
+      // 物理照旧用 Wt[i]，这里只是让画面连成一条带。
+      const w=(Wt[i]*2+Wt[xm]+Wt[xp]+Wt[ym]+Wt[yp])*0.16667;
+      if(w>0.00012){
+        let a=1-Math.exp(-w*300); if(a>0.94)a=0.94;
+        a*=Math.min(1,w/0.0011);        // 极浅水线性淡出，避免边缘一格开一格关的棋盘点
+        let dk=Math.min(1,w*70);   // 0=浅 1=深
+        const wr=142+(18-142)*dk, wg=203+(62-203)*dk, wb=222+(98-222)*dk;
+        // 浅水高光（薄水层偏白）
+        const hl=(1-dk)*a*0.22;
+        r=r*(1-a)+wr*a*(0.55+sh*0.5)+hl*70;
+        g=g*(1-a)+wg*a*(0.55+sh*0.5)+hl*80;
+        b=b*(1-a)+wb*a*(0.6+sh*0.45)+hl*85;
+      }
+      const o=i<<2;
+      D[o]=r<0?0:r>255?255:r; D[o+1]=g<0?0:g>255?255:g; D[o+2]=b<0?0:b>255?255:b;
+    }
+  }
+  octx.putImageData(img,0,0);
+  ctx.fillStyle='#0b0d10'; ctx.fillRect(0,0,W,H);
+  let sx=0,sy=0;
+  if(shake>0){ const k=shake*shake*7; sx=(Math.random()-.5)*k; sy=(Math.random()-.5)*k; }
+  ctx.imageSmoothingEnabled=true;
+  ctx.drawImage(oc,sx,sy,W,dispH);
+  drawOverlay();
+}
+
+// 云 + 雨 + 手势提示
+let rainPh=0;
+function drawOverlay(){
+  const cxp=cloudX*W, cyp=cloudGY/gh*dispH;
+  // 雨线
+  ctx.strokeStyle='rgba(168,214,232,0.30)'; ctx.lineWidth=1.1; ctx.beginPath();
+  for(let i=0;i<26;i++){
+    const a=(i*127.3)%1, sxp=cxp+(a-0.5)*W*0.155;
+    const ph=(rainPh*1.6+a*3.7)%1;
+    const y=cyp+16+ph*(dispH*0.16);
+    ctx.moveTo(sxp,y); ctx.lineTo(sxp-1.5,y+9);
+  }
+  ctx.stroke();
+  // 云（几个重叠圆）
+  const cl=[[0,0,26],[-24,4,19],[24,3,20],[-11,-11,17],[13,-10,16],[40,7,13],[-40,8,12]];
+  ctx.save();
+  ctx.shadowColor='rgba(0,0,0,.45)'; ctx.shadowBlur=14; ctx.shadowOffsetY=4;
+  ctx.fillStyle=dragCloud?'rgba(238,244,248,.98)':'rgba(226,234,240,.93)';
+  ctx.beginPath();
+  for(const c of cl){ ctx.moveTo(cxp+c[0]+c[2],cyp+c[1]); ctx.arc(cxp+c[0],cyp+c[1],c[2],0,6.284); }
+  ctx.fill();
+  ctx.restore();
+  ctx.fillStyle='rgba(150,168,182,.55)';
+  ctx.beginPath();
+  for(const c of [[-16,10,13],[8,11,14],[28,10,10]]){ ctx.moveTo(cxp+c[0]+c[2],cyp+c[1]); ctx.arc(cxp+c[0],cyp+c[1],c[2],0,6.284); }
+  ctx.fill();
+  // 溃坝喊话：只靠抖屏+低频声，静音的人根本不知道刚发生了什么
+  if(burst>0){
+    const a=burst>0.8?(1-burst)*5:burst/0.8;
+    ctx.save(); ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font='800 '+Math.round(Math.min(46,W*0.062))+'px -apple-system,"PingFang SC",sans-serif';
+    const yy=dispH*0.34, sc=1+(1-Math.min(1,(1-burst)*4))*0.16;
+    ctx.translate(W/2,yy); ctx.scale(sc,sc);
+    ctx.lineWidth=6; ctx.strokeStyle='rgba(8,10,13,'+(0.55*a)+')'; ctx.strokeText('dam broke',0,0);
+    ctx.fillStyle='rgba(255,232,196,'+(0.95*a)+')'; ctx.fillText('dam broke',0,0);
+    ctx.font='700 '+Math.round(Math.min(15,W*0.021))+'px -apple-system,"PingFang SC",sans-serif';
+    ctx.fillStyle='rgba(255,225,190,'+(0.6*a)+')'; ctx.fillText('the water found its own way',0,Math.min(34,W*0.046));
+    ctx.restore();
+  }
+  // 进场手势提示
+  if(demo.on){
+    const p=demo.t/demo.dur, e=p<1?p:1;
+    const dx=demo.x0+(demo.x1-demo.x0)*e, dy=demo.y;
+    const fade=demo.t>demo.dur?Math.max(0,1-(demo.t-demo.dur)/0.55):1;
+    ctx.strokeStyle='rgba(255,240,210,'+(0.30*fade)+')'; ctx.lineWidth=3; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(demo.x0,dy); ctx.lineTo(dx,dy); ctx.stroke();
+    ctx.fillStyle='rgba(255,245,225,'+(0.34*fade)+')';
+    ctx.beginPath(); ctx.arc(dx,dy,17,0,6.284); ctx.fill();
+    ctx.strokeStyle='rgba(255,250,235,'+(0.7*fade)+')'; ctx.lineWidth=1.6;
+    ctx.beginPath(); ctx.arc(dx,dy,17,0,6.284); ctx.stroke();
+  }
+}
+
+// ---------- 布局 ----------
+function bilerpResample(src,ow,oh,nw,nh){
+  const out=new Float32Array(nw*nh);
+  for(let y=0;y<nh;y++){
+    const py=nh>1?y/(nh-1)*(oh-1):0, iy=Math.min(oh-2,py|0), fy=py-iy;
+    for(let x=0;x<nw;x++){
+      const px=nw>1?x/(nw-1)*(ow-1):0, ix=Math.min(ow-2,px|0), fx=px-ix, j=iy*ow+ix;
+      out[y*nw+x]=(src[j]*(1-fx)+src[j+1]*fx)*(1-fy)+(src[j+ow]*(1-fx)+src[j+ow+1]*fx)*fy;
+    }
+  }
+  return out;
+}
+function layout(){
+  W=window.innerWidth||document.documentElement.clientWidth||900;
+  H=window.innerHeight||document.documentElement.clientHeight||700;
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const dk=document.querySelector('.dock');
+  dockH=Math.max(76,(dk?dk.offsetHeight:86)+6);
+  dispH=Math.max(120,H-dockH);
+  const m=W<560;
+  // 格子形状必须跟着屏幕形状走，格子要接近正方形。
+  // 竖屏手机上照搬 128×88 这种横向网格，会被拉成「横 3 倍、纵 9.6 倍」，
+  // 画面直接糊成一片竖条纹 —— 这是实测截图里最刺眼的问题。
+  const budget=m?11500:24500;
+  const aspect=Math.max(0.25,Math.min(4,W/dispH));
+  let ngw=Math.round(Math.sqrt(budget*aspect)), ngh=Math.round(budget/Math.max(1,ngw));
+  ngw=Math.max(48,Math.min(240,ngw)); ngh=Math.max(48,Math.min(240,ngh));
+  if(!T){ MOB=m; gw=ngw; gh=ngh; DT=1/30; SS=DT*30; alloc(); reset(false); return; }
+  if(ngw!==gw||ngh!==gh){
+    // 绝不重新生成地形：双线性重采样把玩家的河谷带过去
+    const nT=bilerpResample(T,gw,gh,ngw,ngh), nW=bilerpResample(Wt,gw,gh,ngw,ngh);
+    const oldGh=gh;
+    MOB=m; gw=ngw; gh=ngh; DT=1/30; SS=DT*30;
+    alloc();
+    T.set(nT); Wt.set(nW);
+    cloudGY=Math.max(2,Math.min(gh-3,Math.round(cloudGY/oldGh*gh)));
+  }
+}
+
+// ---------- 交互 ----------
+let ptr=null, dragCloud=false, lastG=null, holdG=null;
+function toGrid(e){
+  const r=cv.getBoundingClientRect();
+  const px=e.clientX-r.left, py=e.clientY-r.top;
+  return {gx:px/W*(gw-1), gy:py/dispH*(gh-1), px:px, py:py};
+}
+function brushRadiusG(){ return (MOB?32:24)/W*gw; }
+
+cv.addEventListener('pointerdown',e=>{
+  if(ptr!==null) return;                 // 只认第一根手指
+  ptr=e.pointerId; e.preventDefault();
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  unlockAudio(); hideHint(); demo.on=false;
+  const g=toGrid(e);
+  const cxp=cloudX*W, cyp=cloudGY/gh*dispH;
+  dragCloud=Math.hypot(g.px-cxp,g.py-cyp)<56;
+  if(dragCloud){ cloudX=Math.max(0.04,Math.min(0.96,g.px/W)); }
+  else{ holdG=g; lastG=g; brush(g.gx,g.gy,brushRadiusG(),mode*0.030); }
+},{passive:false});
+
+cv.addEventListener('pointermove',e=>{
+  if(e.pointerId!==ptr) return;          // 其余手指直接 return
+  e.preventDefault();
+  const g=toGrid(e);
+  if(dragCloud){ cloudX=Math.max(0.04,Math.min(0.96,g.px/W)); return; }
+  // 沿路径补点，快速拖动不断线
+  if(lastG){
+    const dx=g.gx-lastG.gx, dy=g.gy-lastG.gy, d=Math.hypot(dx,dy);
+    const step=Math.max(0.6,brushRadiusG()*0.34), n=Math.min(48,Math.ceil(d/step));
+    for(let k=1;k<=n;k++) brush(lastG.gx+dx*k/n, lastG.gy+dy*k/n, brushRadiusG(), mode*0.030);
+  }
+  lastG=g; holdG=g;
+},{passive:false});
+function endPtr(e){ if(e.pointerId!==ptr) return; ptr=null; dragCloud=false; lastG=null; holdG=null; }
+cv.addEventListener('pointerup',endPtr);
+cv.addEventListener('pointercancel',endPtr);
+
+let hintGone=false;
+function hideHint(){ if(hintGone)return; hintGone=true; hintEl.style.opacity=0;
+  setTimeout(()=>{ hintEl.textContent='💡 dam it up → water fills and spills over → the dam breaks on its own'; hintEl.style.opacity=.55; },700); }
+
+const bR=document.getElementById('bRaise'), bD=document.getElementById('bDig');
+bR.onclick=()=>{mode=1;bR.classList.add('sel');bD.classList.remove('sel');unlockAudio();};
+bD.onclick=()=>{mode=-1;bD.classList.add('sel');bR.classList.remove('sel');unlockAudio();};
+// 重开：长按 900ms 才生效
+const bRe=document.getElementById('bReset'), rFill=document.getElementById('rFill');
+let holdT=0, holdRAF=0;
+function holdStart(e){ e.preventDefault(); unlockAudio(); holdT=performance.now();
+  const tick=()=>{ const p=Math.min(1,(performance.now()-holdT)/900); rFill.style.width=(p*100)+'%';
+    if(p>=1){ holdEnd(); reset(true); hintGone=false; hintEl.textContent='🌍 a fresh patch of land'; hintEl.style.opacity=.6; return; }
+    holdRAF=requestAnimationFrame(tick); };
+  holdRAF=requestAnimationFrame(tick);
+}
+function holdEnd(){ cancelAnimationFrame(holdRAF); rFill.style.width='0%'; }
+bRe.addEventListener('pointerdown',holdStart,{passive:false});
+bRe.addEventListener('pointerup',holdEnd); bRe.addEventListener('pointerleave',holdEnd);
+bRe.addEventListener('pointercancel',holdEnd);
+
+// ---------- 进场手势演示 ----------
+const demo={on:true,t:0,dur:1.7,x0:0,x1:0,y:0,lastX:0};
+function demoInit(){ demo.x0=W*0.26; demo.x1=W*0.74; demo.y=dispH*0.46; demo.lastX=demo.x0; }
+function demoStep(dt){
+  if(!demo.on) return;
+  demo.t+=dt;
+  const p=Math.min(1,demo.t/demo.dur);
+  const x=demo.x0+(demo.x1-demo.x0)*p;
+  // 真的堆一道岭出来，让人一眼看懂「拖=堆土」
+  const gy=demo.y/dispH*(gh-1);
+  const a=demo.lastX, b=x, r=brushRadiusG();
+  const n=Math.max(1,Math.ceil((b-a)/W*gw/(r*0.34)));
+  for(let k=1;k<=n;k++){ const xx=a+(b-a)*k/n; brush(xx/W*(gw-1),gy,r,0.030*0.55,false); }
+  demo.lastX=x;
+  if(demo.t>demo.dur+0.6) demo.on=false;
+}
+
+// ---------- 主循环 ----------
+let acc=0, last=performance.now(), gaugeOn=0;
+function frame(now){
+  let dt=(now-last)/1000; last=now;
+  if(!(dt>0)) dt=0.016; if(dt>0.25) dt=0.25;
+  acc+=dt; rainPh=(rainPh+dt)%1000;
+  let steps=0;
+  while(acc>=DT && steps<3){ simStep(); acc-=DT; steps++; }
+  if(acc>DT*4) acc=DT*4;
+  demoStep(dt);
+  if(shake>0){ shake-=dt*2.2; if(shake<0)shake=0; }
+  if(burst>0){ burst-=dt*0.55; if(burst<0)burst=0; }
+  render();
+  const mm=eroded*MMSCALE;
+  eroEl.textContent=(mm<1000?mm.toFixed(1):Math.round(mm).toString());
+  // 坝前水位：让「蓄水」这段等待有东西可看，垮掉那一下也才有对比
+  const on=lakeVol>0.8?1:0;
+  if(on!==gaugeOn){ gaugeOn=on; gaugeEl.style.opacity=on; glabEl.style.opacity=on?.5:0; }
+  if(on) gfillEl.style.width=(Math.min(1,lakeVol/42)*100)+'%';
+  requestAnimationFrame(frame);
+}
+
+window.addEventListener('resize',()=>{layout();demoInit();});
+layout(); demoInit();
+requestAnimationFrame(frame);
+
+// ---------- 验收钩子 ----------
+window.__tick=(n)=>{ for(let i=0;i<(n|0);i++) simStep(); render(); return window.__state(); };
+window.__state=()=>{
+  let sw=0,mw=0,st=0,nan=0,wet=0,minT=1e9,maxT=-1e9;
+  for(let i=0;i<N;i++){
+    const w=Wt[i],t=T[i];
+    if(!isFinite(w)||!isFinite(t)||!isFinite(Sed[i])) nan++;
+    sw+=w; if(w>mw)mw=w; st+=t; if(w>0.004&&t>SEA)wet++;
+    if(t<minT)minT=t; if(t>maxT)maxT=t;
+  }
+  // 粗糙度：二阶差分均值。棋盘噪点一出现这个数就会飙 —— 挂机看它比看图快
+  let rg=0,rn=0;
+  for(let y=1;y<gh-1;y++) for(let x=1;x<gw-1;x++){
+    const i=y*gw+x;
+    rg+=Math.abs(4*T[i]-T[i-1]-T[i+1]-T[i-gw]-T[i+gw]); rn++;
+  }
+  return {gw,gh,sumW:+sw.toFixed(4),maxW:+mw.toFixed(4),avgT:+(st/N).toFixed(5),
+    minT:+minT.toFixed(4),maxT:+maxT.toFixed(4),wet,nan,eroded:+eroded.toFixed(5),
+    rough:+(rg/rn).toFixed(6),sat:lastSat,lake:+lakeVol.toFixed(3),lakePk:+lakePeak.toFixed(3),stepEro:+lastStepEro.toFixed(6),maxDrop:+lastMaxDrop.toFixed(7),built:+builtTotal.toFixed(3),breaches,simTime:+simTime.toFixed(1),mm:+(eroded*MMSCALE).toFixed(1)};
+};
+window.__api={brush,reset,get T(){return T;},get Wt(){return Wt;},get gw(){return gw;},get gh(){return gh;},
+  setCloud:v=>{cloudX=v;}, get cloudXv(){return +cloudX.toFixed(3);}, get mode(){return mode;}, set mode(v){mode=v;}, killDemo:()=>{demo.on=false;},
+  get REL(){return REL;}, set REL(v){REL=v;}, get KEV(){return KEVAP;}, set KEV(v){KEVAP=v;}, get RAIN(){return RAIN;}, set RAIN(v){RAIN=v;}, get A(){return AREA;}, set A(v){AREA=v;}, get FD(){return FDAMP;}, set FD(v){FDAMP=v;}, get cloudGY(){return cloudGY;}, get Sed(){return Sed;},
+  qstats:()=>{ const a=[]; for(let i=0;i<N;i++){ const q=fL[i]+fR[i]+fT[i]+fB[i]; if(q>1e-6&&T[i]>SEA) a.push(q); }
+    a.sort((x,y)=>x-y); const P=p=>a.length?a[Math.min(a.length-1,(a.length*p)|0)]:0;
+    return {n:a.length,p50:+P(.5).toFixed(5),p90:+P(.9).toFixed(5),p99:+P(.99).toFixed(5),p999:+P(.999).toFixed(5),max:+(a[a.length-1]||0).toFixed(5)}; },
+  gen:genTerrain, fill:fillDepressions, get vU(){return velU;}, get vV(){return velV;},
+  K:{get Kc(){return Kc;},set Kc(v){Kc=v;},get QK(){return QK;},set QK(v){QK=v;},get Ks(){return Ks;},get Kd(){return Kd;},get WERO(){return WERO;},get MIN(){return MINSLOPE;},get MAX(){return MAXSLOPE;},get VE(){return VE;},get MAXDH(){return MAXDH;},get SS(){return SS;}}, step:simStep, get breachT(){return lastBreachT;}, get simTime(){return simTime;}};
+})();
+</script>
+</body>
+</html>

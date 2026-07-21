@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Rope</title>
+<style>
+  :root{
+    --ink:#dff1f7;
+    --panel:rgba(14,26,40,.82);
+    --brd:rgba(120,200,225,.16);
+    --acc:#6fe3ff;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:var(--ink);background:#060b14;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:14px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:22px;font-weight:800;letter-spacing:3px}
+  .title span{display:block;font-size:12px;opacity:.5;margin-top:3px;font-weight:600;letter-spacing:.5px}
+  .cnt{position:fixed;top:18px;right:18px;z-index:5;font-size:12px;font-weight:700;opacity:.35;
+    pointer-events:none;font-variant-numeric:tabular-nums}
+  .dock{position:fixed;left:0;right:0;bottom:0;z-index:6;
+    display:flex;flex-direction:column;align-items:center;gap:8px;
+    padding:10px 12px calc(12px + env(safe-area-inset-bottom,0px));pointer-events:none}
+  .hint{font-size:12.5px;font-weight:600;opacity:.55;text-align:center;pointer-events:none;
+    letter-spacing:.3px;min-height:16px;transition:opacity .3s}
+  .bar{display:flex;gap:6px;justify-content:center;flex-wrap:nowrap;pointer-events:auto;
+    background:var(--panel);border:1px solid var(--brd);padding:6px;border-radius:16px;
+    backdrop-filter:blur(10px);box-shadow:0 10px 30px rgba(0,0,0,.45)}
+  .bar button{font:inherit;font-weight:700;font-size:13.5px;color:var(--ink);
+    border:1px solid transparent;background:rgba(255,255,255,.05);
+    min-width:60px;min-height:44px;padding:0 14px;border-radius:11px;cursor:pointer;
+    white-space:nowrap;transition:background .12s,color .12s,border-color .12s}
+  .bar button.on{background:rgba(111,227,255,.16);border-color:rgba(111,227,255,.5);color:#bff2ff}
+  .bar button:active{transform:translateY(1px)}
+  .undo{position:fixed;right:14px;bottom:calc(78px + env(safe-area-inset-bottom,0px));z-index:7;
+    width:38px;height:38px;border-radius:50%;border:1px solid var(--brd);
+    background:rgba(14,26,40,.7);color:var(--ink);cursor:pointer;font-size:17px;line-height:1;
+    opacity:.5;pointer-events:auto;backdrop-filter:blur(6px)}
+  .undo:active{opacity:1}
+  @media (max-width:520px){
+    .title b{font-size:19px} .title span{font-size:11px}
+    .bar{gap:4px;padding:5px}
+    .bar button{min-width:52px;font-size:12.5px;padding:0 8px}
+    .hint{font-size:11.5px}
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>Rope</b><span>draw one, cut one</span></div>
+<div class="cnt" id="cnt"></div>
+<button class="undo" id="undo" title="undo">↩</button>
+<div class="dock" id="dock">
+  <div class="hint" id="hint">drag on empty space to draw a rope</div>
+  <div class="bar">
+    <button id="m_rope" class="on">rope</button>
+    <button id="m_cloth">cloth</button>
+    <button id="m_balloon">balloon</button>
+    <button id="m_cut">cut</button>
+  </div>
+</div>
+<script>
+(()=>{
+'use strict';
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const hintEl=document.getElementById('hint'), cntEl=document.getElementById('cnt');
+let W=0,H=0,dpr=1,FLOOR=0,NARROW=false;
+
+// ---------- world ----------
+let P=[];      // points  {x,y,ox,oy,pin,kin,batch,warm,deg}
+let C=[];      // constraints {a,b,rest,batch,kind,dead}
+let BAL=[];    // balloons {ring:[pt], cons:[c], A0, batch}
+let CLO=[];    // cloths  {grid:[[pt]], batch}
+let FX=[];     // particles
+let batchSeq=0;
+let undoStack=[];
+
+const G0=1200;                // px/s^2 at load-time scale
+let G=G0, SCALE=1;            // SCALE tracks world size vs load, so G stays consistent
+const DT=1/60;
+const SUB=2;                  // physics sub-steps: halving dt is what keeps loaded rope stiff
+const DAMP=0.992;
+const BREAK=2.5;              // constraint dies past rest*2.5
+const SNAP=40, GRABR=20, STEP=12;
+let MAXP=1200, RELAX=6;
+
+const npt=(x,y,pin)=>({x,y,ox:x,oy:y,pin:!!pin,kin:false,batch:batchSeq,warm:2,deg:0});
+function addPt(x,y,pin){ const p=npt(x,y,pin); P.push(p); return p; }
+function addCon(a,b,kind,rest){
+  if(a===b) return null;
+  const r=(rest==null)?Math.hypot(b.x-a.x,b.y-a.y):rest;
+  kind=kind||'rope';
+  // shear/bend are shape hints, not structure — solving them hard turns cloth into plywood
+  const k=(kind==='shear')?0.22:(kind==='bend'?0.35:1);
+  // rope and cloth pull but barely push — that is the whole difference between
+  // fabric that crumples into a heap and a sheet of plywood standing on its edge
+  const slack=(kind==='rope'||kind==='cloth'||kind==='shear');
+  const c={a,b,rest:Math.max(r,1),batch:batchSeq,kind,k,slack,dead:false};
+  C.push(c); return c;
+}
+const liveCount=()=>P.length;
+function room(n){ return P.length+n<=MAXP; }
+
+// ---------- helpers ----------
+function nearestPt(x,y,rad){
+  let best=null,bd=rad*rad;
+  for(const p of P){ const dx=p.x-x,dy=p.y-y,d=dx*dx+dy*dy; if(d<bd){bd=d;best=p;} }
+  return best;
+}
+function resample(path,gap){
+  if(path.length<2) return path.slice();
+  const out=[path[0]]; let acc=0;
+  for(let i=1;i<path.length;i++){
+    let ax=out[out.length-1].x, ay=out[out.length-1].y;
+    let bx=path[i].x, by=path[i].y;
+    let d=Math.hypot(bx-ax,by-ay);
+    while(d>=gap){
+      const t=gap/d;
+      const nx=ax+(bx-ax)*t, ny=ay+(by-ay)*t;
+      out.push({x:nx,y:ny}); ax=nx; ay=ny;
+      d=Math.hypot(bx-ax,by-ay);
+    }
+  }
+  const l=out[out.length-1], e=path[path.length-1];
+  if(Math.hypot(e.x-l.x,e.y-l.y)>gap*0.45) out.push({x:e.x,y:e.y});
+  return out;
+}
+function polyArea(ring){
+  let A=0; const n=ring.length;
+  for(let i=0;i<n;i++){ const j=(i+1)%n; A+=ring[i].x*ring[j].y-ring[j].x*ring[i].y; }
+  return A*0.5;
+}
+function centroid(ring){
+  let x=0,y=0; for(const p of ring){x+=p.x;y+=p.y;}
+  return {x:x/ring.length,y:y/ring.length};
+}
+
+// ---------- builders ----------
+function buildRope(path){
+  const pts=resample(path,STEP);
+  if(pts.length<2) return false;
+  const startSnap=nearestPt(pts[0].x,pts[0].y,SNAP);
+  const endSnap=nearestPt(pts[pts.length-1].x,pts[pts.length-1].y,SNAP);
+  let need=pts.length-(startSnap?1:0)-(endSnap?1:0);
+  if(!room(Math.max(need,0))) return 'full';
+  batchSeq++;
+  const nodes=[];
+  for(let i=0;i<pts.length;i++){
+    if(i===0&&startSnap){nodes.push(startSnap);continue;}
+    if(i===pts.length-1&&endSnap&&endSnap!==nodes[nodes.length-1]){nodes.push(endSnap);continue;}
+    nodes.push(addPt(pts[i].x,pts[i].y,false));
+  }
+  let made=0;
+  // a hair of slack: a perfectly taut hand-drawn line would tear the moment you load it
+  for(let i=0;i<nodes.length-1;i++){
+    const d=Math.hypot(nodes[i+1].x-nodes[i].x,nodes[i+1].y-nodes[i].y);
+    if(addCon(nodes[i],nodes[i+1],'rope',d*1.03)) made++;
+  }
+  if(!made){ rollback(batchSeq); return false; }
+  undoStack.push(batchSeq);
+  return true;
+}
+function buildCloth(x0,y0,x1,y1){
+  const rx=Math.min(x0,x1), ry=Math.min(y0,y1);
+  const w=Math.abs(x1-x0), h=Math.abs(y1-y0);
+  if(w<30||h<30) return false;
+  const gap=NARROW?22:20;
+  let cols=Math.max(2,Math.min(30,Math.round(w/gap)+1));
+  let rows=Math.max(2,Math.min(30,Math.round(h/gap)+1));
+  while(cols*rows>Math.min(420,MAXP-P.length)){ if(cols>=rows)cols--; else rows--; if(cols<2||rows<2) return 'full'; }
+  if(!room(cols*rows)) return 'full';
+  batchSeq++;
+  const dx=w/(cols-1), dy=h/(rows-1);
+  const g=[];
+  for(let r=0;r<rows;r++){ const row=[];
+    // a hair of jitter, otherwise a perfectly symmetric sheet lands and stands like a wall
+    for(let c2=0;c2<cols;c2++) row.push(addPt(rx+c2*dx+(Math.random()-0.5)*1.2,ry+r*dy+(Math.random()-0.5)*1.2,false));
+    g.push(row);
+  }
+  for(let r=0;r<rows;r++)for(let c2=0;c2<cols;c2++){
+    if(c2<cols-1) addCon(g[r][c2],g[r][c2+1],'cloth');
+    if(r<rows-1) addCon(g[r][c2],g[r+1][c2],'cloth');
+    if(c2<cols-1&&r<rows-1){ addCon(g[r][c2],g[r+1][c2+1],'shear'); addCon(g[r][c2+1],g[r+1][c2],'shear'); }
+  }
+  CLO.push({grid:g,batch:batchSeq});
+  // weld corners onto anything already there — this is how cloth becomes a tent / hammock
+  const mine=new Set(); for(const row of g) for(const p of row) mine.add(p);
+  const corners=[g[0][0],g[0][cols-1],g[rows-1][0],g[rows-1][cols-1]];
+  for(const cp of corners){
+    let best=null,bd=SNAP*SNAP;
+    for(const p of P){ if(mine.has(p)) continue; const ddx=p.x-cp.x,ddy=p.y-cp.y,d=ddx*ddx+ddy*ddy; if(d<bd){bd=d;best=p;} }
+    if(best){
+      // a weld is a knot, not a rope: short rest would make 2.5x trivially reachable,
+      // so it is exempt from the tear rule or every tent falls down the moment it is made
+      const w=addCon(cp,best,'rope',5);
+      if(w) w.tough=true;
+    }
+  }
+  undoStack.push(batchSeq);
+  return true;
+}
+function buildBalloon(path){
+  let pts=resample(path,NARROW?16:14);
+  if(pts.length>2){
+    const d=Math.hypot(pts[0].x-pts[pts.length-1].x,pts[0].y-pts[pts.length-1].y);
+    if(d<STEP*0.9) pts.pop();
+  }
+  if(pts.length<6) return false;
+  if(pts.length>64) pts=pts.filter((_,i)=>i%Math.ceil(pts.length/64)===0);
+  const A=Math.abs(polyArea(pts));
+  if(A<900) return false;
+  if(!room(pts.length)) return 'full';
+  batchSeq++;
+  const ring=pts.map(q=>addPt(q.x,q.y,false));
+  const cons=[];
+  const n=ring.length;
+  for(let i=0;i<n;i++) cons.push(addCon(ring[i],ring[(i+1)%n],'skin'));
+  for(let i=0;i<n;i++) addCon(ring[i],ring[(i+2)%n],'bend');   // stops kinking
+  BAL.push({ring,cons:cons.filter(Boolean),A0:Math.abs(polyArea(ring))*1.08,batch:batchSeq});
+  undoStack.push(batchSeq);
+  return true;
+}
+function placePin(x,y){
+  // tapping an existing pin used to stack a second invisible one on top of it
+  const near=nearestPt(x,y,GRABR);
+  if(near&&near.pin) return false;
+  if(!room(1)) return 'full';
+  batchSeq++;
+  addPt(x,y,true);
+  undoStack.push(batchSeq);
+  return true;
+}
+function rollback(id){
+  P=P.filter(p=>p.batch!==id); C=C.filter(c=>c.batch!==id);
+  BAL=BAL.filter(b=>b.batch!==id); CLO=CLO.filter(c=>c.batch!==id);
+}
+function undo(){
+  const id=undoStack.pop();
+  if(id==null){ say('nothing left to undo'); return; }
+  rollback(id); cleanup(); say('undid that');
+}
+function cleanup(){
+  const alive=new Set(P);
+  C=C.filter(c=>!c.dead&&alive.has(c.a)&&alive.has(c.b));
+  for(const p of P) p.deg=0;
+  for(const c of C){ c.a.deg++; c.b.deg++; }
+  // balloons whose skin was cut go limp — that's a pop
+  BAL=BAL.filter(b=>{
+    if(b.cons.some(c=>c.dead||!alive.has(c.a)||!alive.has(c.b))){
+      const c0=centroid(b.ring); burst(c0.x,c0.y,14); return false;
+    }
+    return b.ring.every(p=>alive.has(p));
+  });
+  CLO=CLO.filter(cl=>alive.has(cl.grid[0][0]));
+  // orphaned loose points serve nothing
+  P=P.filter(p=>p.pin||p.deg>0);
+  const alive2=new Set(P);
+  C=C.filter(c=>alive2.has(c.a)&&alive2.has(c.b));
+  updCnt();
+}
+function updCnt(){ cntEl.textContent=P.length+' / '+MAXP; }
+
+// ---------- physics ----------
+function step(){
+  for(let s=0;s<SUB;s++) substep();
+  contacts();
+  // break only on SUSTAINED overstretch — a single frame of solver overshoot on a loaded
+  // chain is normal and must not silently delete the structure the player just built
+  let broke=false;
+  for(const c of C){
+    if(c.dead||c.tough) continue;
+    if(Math.hypot(c.b.x-c.a.x,c.b.y-c.a.y)>c.rest*BREAK){
+      c.over=(c.over||0)+1;
+      if(c.over>10){ c.dead=true; broke=true; }
+    } else c.over=0;
+  }
+  if(broke) cleanup();
+  for(let i=FX.length-1;i>=0;i--){
+    const f=FX[i];
+    f.vy+=26*DT; f.x+=f.vx*DT; f.y+=f.vy*DT; f.life-=DT;
+    if(f.life<=0) FX.splice(i,1);
+  }
+}
+function substep(){
+  const h=DT/SUB;
+  const g=G*h*h;
+  const vmax=40/SUB;
+  for(const p of P){
+    if(p.warm>0){ p.warm--; p.ox=p.x; p.oy=p.y; continue; }
+    if(p.pin||p.kin){ p.ox=p.x; p.oy=p.y; continue; }
+    let vx=(p.x-p.ox)*DAMP, vy=(p.y-p.oy)*DAMP;
+    const sp=Math.hypot(vx,vy);
+    if(sp>vmax){ vx*=vmax/sp; vy*=vmax/sp; }
+    p.ox=p.x; p.oy=p.y;
+    p.x+=vx; p.y+=vy+g;
+  }
+  const iters=(P.length>800)?Math.min(RELAX,4):RELAX;
+  for(let k=0;k<iters;k++){
+    // balloon pressure: area ratio -> outward push along edge normals
+    for(const b of BAL){
+      const ring=b.ring, n=ring.length;
+      const A=polyArea(ring);
+      const sgn=A<0?-1:1;
+      const ratio=b.A0/Math.max(Math.abs(A),1);
+      const push=Math.max(-0.45,Math.min(0.9,ratio-1))*0.38;
+      if(Math.abs(push)<1e-4) continue;
+      for(let i=0;i<n;i++){
+        const a=ring[i], c2=ring[(i+1)%n];
+        const dx=c2.x-a.x, dy=c2.y-a.y, L=Math.hypot(dx,dy)||1e-4;
+        const nx=(dy/L)*sgn, ny=(-dx/L)*sgn;
+        const f=push*Math.min(L/STEP,2);
+        if(!a.pin&&!a.kin){a.x+=nx*f;a.y+=ny*f;}
+        if(!c2.pin&&!c2.kin){c2.x+=nx*f;c2.y+=ny*f;}
+      }
+    }
+    // alternate sweep direction: a one-way sweep needs ~N iterations to carry tension
+    // down an N-link chain, which is exactly how a loaded rope ends up looking stretched
+    const back=(k&1)===1;
+    for(let ii=0;ii<C.length;ii++){
+      const i=back?(C.length-1-ii):ii;
+      const c=C[i]; if(c.dead) continue;
+      const a=c.a,b=c.b;
+      const fa=a.pin||a.kin||a.warm>0, fb=b.pin||b.kin||b.warm>0;
+      if(fa&&fb) continue;
+      let dx=b.x-a.x, dy=b.y-a.y;
+      let d=Math.hypot(dx,dy); if(d<1e-6) continue;
+      let diff=(d-c.rest)/d;
+      if(diff<0&&c.slack) diff*=0.12;      // squashing a rope should cost almost nothing
+      // full correction, magnitude-capped so nothing can teleport, then split
+      let fx=dx*diff*c.k, fy=dy*diff*c.k;
+      const cap=Math.max(c.rest*0.5,5), m=Math.hypot(fx,fy);
+      if(m>cap){ fx*=cap/m; fy*=cap/m; }
+      if(fa){ b.x-=fx; b.y-=fy; }
+      else if(fb){ a.x+=fx; a.y+=fy; }
+      else { a.x+=fx*0.5; a.y+=fy*0.5; b.x-=fx*0.5; b.y-=fy*0.5; }
+    }
+    bounds();
+  }
+}
+function bounds(){
+  for(const p of P){
+    if(p.pin||p.kin) continue;
+    if(p.x<2){ p.x=2; p.ox=p.x+(p.ox-p.x)*-0.3; }
+    else if(p.x>W-2){ p.x=W-2; p.ox=p.x+(p.ox-p.x)*-0.3; }
+    if(p.y>FLOOR){
+      p.y=FLOOR;
+      const vx=(p.x-p.ox)*0.72;
+      p.ox=p.x-vx; p.oy=p.y+ (p.y-p.oy)*0.24;
+    } else if(p.y<-600) p.y=-600;
+  }
+  // pins are little posts — everything drapes over them
+  for(const q of P){
+    if(!q.pin) continue;
+    for(const p of P){
+      if(p===q||p.pin||p.kin) continue;
+      const dx=p.x-q.x, dy=p.y-q.y; const d2=dx*dx+dy*dy;
+      if(d2<81&&d2>1e-8){ const d=Math.sqrt(d2), s=(9-d)/d; p.x+=dx*s; p.y+=dy*s; }
+    }
+  }
+}
+// balloons collide with ropes/cloth and with each other — this is what makes bridges & hammocks work
+function contacts(){
+  if(!BAL.length) return;
+  const info=BAL.map(b=>{
+    const c0=centroid(b.ring);
+    // +2 so a rope visibly rests against the skin instead of cutting into it
+    const r=Math.sqrt(Math.abs(polyArea(b.ring))/Math.PI)+2;
+    return {b,c:c0,r};
+  });
+  for(const it of info){
+    const own=new Set(it.b.ring);
+    // a ball lying across a rope overlaps MANY segments at once. Applying every
+    // segment's correction to the ball turns the rope into a catapult (measured:
+    // a ball dropped from y=120 was launched to y=-522). Accumulate, apply once.
+    let accx=0,accy=0,hits=0;
+    for(const c of C){
+      if(c.dead) continue;
+      // anything TIED to this balloon must not also collide with it, or the knot
+      // shoves the balloon away from itself forever
+      if(own.has(c.a)||own.has(c.b)) continue;
+      const ax=c.a.x, ay=c.a.y, bx=c.b.x, by=c.b.y;
+      const ex=bx-ax, ey=by-ay; const L2=ex*ex+ey*ey||1e-6;
+      let t=((it.c.x-ax)*ex+(it.c.y-ay)*ey)/L2; t=t<0?0:(t>1?1:t);
+      const qx=ax+ex*t, qy=ay+ey*t;
+      let dx=it.c.x-qx, dy=it.c.y-qy; let d=Math.hypot(dx,dy);
+      const pen=it.r-d;
+      if(pen<=0) continue;
+      if(d<1e-4){ dx=0; dy=-1; d=1; }
+      const nx=dx/d, ny=dy/d;
+      const moveS=pen*0.45;
+      accx+=nx*pen*0.55; accy+=ny*pen*0.55; hits++;
+      const wa=(1-t), wb=t;
+      if(!c.a.pin&&!c.a.kin&&!(c.a.warm>0)){ c.a.x-=nx*moveS*wa; c.a.y-=ny*moveS*wa; }
+      if(!c.b.pin&&!c.b.kin&&!(c.b.warm>0)){ c.b.x-=nx*moveS*wb; c.b.y-=ny*moveS*wb; }
+    }
+    if(hits){
+      accx/=hits; accy/=hits;
+      // hard ceiling on how far one frame may shove a ball: no contact should ever
+      // read as velocity big enough to fling it off screen
+      const m=Math.hypot(accx,accy), cap=it.r*0.30;
+      if(m>cap){ accx*=cap/m; accy*=cap/m; }
+      for(const p of it.b.ring){ if(!p.pin&&!p.kin){ p.x+=accx; p.y+=accy; } }
+    }
+  }
+  for(let i=0;i<info.length;i++)for(let j=i+1;j<info.length;j++){
+    const A=info[i],Bb=info[j];
+    let dx=Bb.c.x-A.c.x, dy=Bb.c.y-A.c.y; let d=Math.hypot(dx,dy)||1e-4;
+    const pen=A.r+Bb.r-d;
+    if(pen<=0) continue;
+    const nx=dx/d, ny=dy/d, m=pen*0.5;
+    for(const p of A.b.ring){ if(!p.pin&&!p.kin){ p.x-=nx*m; p.y-=ny*m; } }
+    for(const p of Bb.b.ring){ if(!p.pin&&!p.kin){ p.x+=nx*m; p.y+=ny*m; } }
+  }
+}
+function burst(x,y,n){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2, s=40+Math.random()*160;
+    FX.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-40,life:0.4+Math.random()*0.4});
+  }
+  if(FX.length>400) FX.splice(0,FX.length-400);
+}
+
+// ---------- input ----------
+let mode='rope';
+let pid=null;              // only the first finger counts
+let drag=null;             // {kind:'draw'|'grab'|'cut', path, p, moved, t0, x0,y0}
+let cursor={x:0,y:0,on:false};
+let snapT=null;
+
+function setMode(m){
+  mode=m;
+  for(const k of ['rope','cloth','balloon','cut'])
+    document.getElementById('m_'+k).classList.toggle('on',k===m);
+  say(HINTS[m]);
+}
+const HINTS={
+  rope:'drag = draw a rope · tap = drop a pin',
+  cloth:'drag a box = a sheet of cloth · corners grab whatever\'s nearby',
+  balloon:'draw a loop = a squishy air ball · it rolls, it bounces',
+  cut:'swipe across to slice it'
+};
+let hintLock=0, taught=false;
+function say(t,sticky){ hintEl.textContent=t; hintLock=sticky?4:0; }
+
+function pos(e){ return {x:e.clientX,y:e.clientY}; }
+cv.addEventListener('pointerdown',e=>{
+  const q=pos(e);
+  // a thumb parked in the edge gutter must neither draw a screen-wide rope nor
+  // hog the one pointer slot and lock the drawing finger out
+  if(e.pointerType!=='mouse'&&(q.x<14||q.x>W-14||q.y<8)) return;
+  if(pid!==null) return;               // only the first finger counts
+  pid=e.pointerId;
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  const {x,y}=pos(e); cursor.x=x;cursor.y=y;cursor.on=true;
+  unlockAudio();
+  if(mode==='cut'){ drag={kind:'cut',lx:x,ly:y}; return; }
+  // Grabbing is a ROPE-mode verb, and a pin is an anchor you build FROM, not a handle.
+  // Letting any touch-down near any point become a grab silently ate the gesture the
+  // whole toy is built on ("drag from a nail to a ball = a pendulum") and got steadily
+  // worse as the scene filled up, since more and more of the canvas sits within 20px
+  // of something. Measured before this: rope-from-a-pin and cloth-under-two-pins both
+  // produced exactly zero points.
+  const g=(mode==='rope')?nearestPt(x,y,GRABR):null;
+  if(g&&!g.pin){ g.kin=true; g.gx=x; g.gy=y; drag={kind:'grab',p:g,x0:x,y0:y,moved:false}; }
+  else drag={kind:'draw',path:[{x,y}],x0:x,y0:y,moved:false,t0:performance.now()};
+});
+cv.addEventListener('pointermove',e=>{
+  if(e.pointerId!==pid) return;
+  const {x,y}=pos(e); cursor.x=x;cursor.y=y;
+  if(!drag) return;
+  if(drag.kind==='cut'){ cutSeg(drag.lx,drag.ly,x,y); drag.lx=x; drag.ly=y; return; }
+  if(drag.kind==='grab'){
+    // remember where it was last frame so releasing hands over real velocity
+    drag.px=drag.p.x; drag.py=drag.p.y;
+    drag.p.x=x; drag.p.y=y; drag.p.ox=x; drag.p.oy=y; drag.moved=true; return;
+  }
+  const last=drag.path[drag.path.length-1];
+  if(Math.hypot(x-last.x,y-last.y)>3) drag.path.push({x,y});
+  if(Math.hypot(x-drag.x0,y-drag.y0)>6) drag.moved=true;
+  snapT=(mode==='rope')?nearestPt(x,y,SNAP):null;
+});
+function endPointer(e){
+  if(e.pointerId!==pid) return;
+  pid=null; cursor.on=false;
+  const d=drag; drag=null; snapT=null;
+  if(!d) return;
+  if(d.kind==='cut') return;
+  if(d.kind==='grab'){
+    const p=d.p;
+    // hand the velocity over so a fling actually flings
+    if(d.px!=null){
+      let vx=p.x-d.px, vy=p.y-d.py;
+      const s=Math.hypot(vx,vy); if(s>30){vx*=30/s;vy*=30/s;}
+      p.ox=p.x-vx; p.oy=p.y-vy;
+    }
+    p.kin=false;
+    return;
+  }
+  let r=false;
+  if(!d.moved){ r=placePin(d.x0,d.y0); if(r===true) say('a pin. ropes can hang off it'); }
+  else if(mode==='rope') r=buildRope(d.path);
+  else if(mode==='cloth') r=buildCloth(d.x0,d.y0,cursor.x||d.x0,cursor.y||d.y0);
+  else if(mode==='balloon') r=buildBalloon(d.path);
+  if(r==='full') say('too full, cut some loose',true);
+  else if(r===true) cleanup();
+  // the deepest move in the toy (nail -> rope -> ball = a pendulum you can build
+  // machines out of) was left entirely to the player to guess. Say it once, at the
+  // exact moment they own both halves of it.
+  if(r===true&&!taught&&mode==='balloon'&&P.some(p=>p.pin)){
+    taught=true; say('try this: drag a rope from a pin over to the ball, and you\'ve got a pendulum',true);
+  }
+  updCnt();
+}
+cv.addEventListener('pointerup',endPointer);
+cv.addEventListener('pointercancel',e=>{ if(e.pointerId===pid){ if(drag&&drag.kind==='grab'){drag.p.kin=false;drag.p.warm=1;} pid=null;drag=null;cursor.on=false;snapT=null; } });
+
+function segHit(ax,ay,bx,by,cx,cy,dx2,dy2){
+  const r1=(bx-ax),r2=(by-ay),s1=(dx2-cx),s2=(dy2-cy);
+  const den=r1*s2-r2*s1; if(Math.abs(den)<1e-9) return false;
+  const t=((cx-ax)*s2-(cy-ay)*s1)/den;
+  const u=((cx-ax)*r2-(cy-ay)*r1)/den;
+  return t>=0&&t<=1&&u>=0&&u<=1;
+}
+function cutSeg(x0,y0,x1,y1){
+  if(Math.hypot(x1-x0,y1-y0)<1.5) return;
+  let n=0;
+  for(const c of C){
+    if(c.dead) continue;
+    if(segHit(x0,y0,x1,y1,c.a.x,c.a.y,c.b.x,c.b.y)){
+      c.dead=true; n++;
+      burst((c.a.x+c.b.x)/2,(c.a.y+c.b.y)/2,3);
+    }
+  }
+  if(n){ cleanup(); snip(); }
+}
+
+// ---------- audio ----------
+let AC=null;
+function unlockAudio(){
+  if(AC) return;
+  try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(_){ AC=null; }
+}
+function snip(){
+  if(!AC||AC.state==='suspended') { if(AC) AC.resume(); }
+  if(!AC) return;
+  const t=AC.currentTime;
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type='triangle'; o.frequency.setValueAtTime(880+Math.random()*300,t);
+  o.frequency.exponentialRampToValueAtTime(220,t+0.07);
+  g.gain.setValueAtTime(0.06,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.09);
+  o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t+0.1);
+}
+
+// ---------- render ----------
+function tensionColor(c){
+  const d=Math.hypot(c.b.x-c.a.x,c.b.y-c.a.y);
+  let s=(d-c.rest)/c.rest;
+  let t=Math.max(0,Math.min(1,(s-0.02)/0.16));
+  const r=Math.round(28+(228-28)*t), g=Math.round(112+(246-112)*t), b=Math.round(126+(255-126)*t);
+  return 'rgb('+r+','+g+','+b+')';
+}
+function draw(){
+  ctx.fillStyle='#060b14'; ctx.fillRect(0,0,W,H);
+  // grid dots
+  ctx.fillStyle='rgba(120,190,220,.09)';
+  const gs=34;
+  for(let x=gs/2;x<W;x+=gs) for(let y=gs/2;y<FLOOR+gs;y+=gs){ ctx.fillRect(x,y,1.5,1.5); }
+  // floor
+  const fg=ctx.createLinearGradient(0,FLOOR-30,0,FLOOR);
+  fg.addColorStop(0,'rgba(80,180,210,0)'); fg.addColorStop(1,'rgba(80,180,210,.10)');
+  ctx.fillStyle=fg; ctx.fillRect(0,FLOOR-30,W,30);
+  ctx.fillStyle='rgba(120,210,235,.22)'; ctx.fillRect(0,FLOOR,W,1);
+
+  // cloth fills
+  ctx.fillStyle='rgba(90,200,225,.055)';
+  for(const cl of CLO){
+    const g2=cl.grid;
+    for(let r=0;r<g2.length-1;r++)for(let c2=0;c2<g2[0].length-1;c2++){
+      ctx.beginPath();
+      ctx.moveTo(g2[r][c2].x,g2[r][c2].y);
+      ctx.lineTo(g2[r][c2+1].x,g2[r][c2+1].y);
+      ctx.lineTo(g2[r+1][c2+1].x,g2[r+1][c2+1].y);
+      ctx.lineTo(g2[r+1][c2].x,g2[r+1][c2].y);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  // balloon bodies
+  for(const b of BAL){
+    const ring=b.ring, n=ring.length;
+    ctx.beginPath();
+    const mx=i=>(ring[i].x+ring[(i+1)%n].x)/2, my=i=>(ring[i].y+ring[(i+1)%n].y)/2;
+    ctx.moveTo(mx(n-1),my(n-1));
+    for(let i=0;i<n;i++) ctx.quadraticCurveTo(ring[i].x,ring[i].y,mx(i),my(i));
+    ctx.closePath();
+    const c0=centroid(ring), r=Math.sqrt(Math.abs(polyArea(ring))/Math.PI)||8;
+    const rg=ctx.createRadialGradient(c0.x-r*0.35,c0.y-r*0.4,r*0.1,c0.x,c0.y,r*1.2);
+    rg.addColorStop(0,'rgba(150,240,255,.42)'); rg.addColorStop(1,'rgba(40,140,180,.20)');
+    ctx.fillStyle=rg; ctx.fill();
+  }
+  // constraints
+  ctx.lineCap='round';
+  for(const c of C){
+    if(c.dead) continue;
+    if(c.kind==='bend'||c.kind==='shear') continue;  // structural only, drawing them reads as fishnet
+    ctx.strokeStyle=tensionColor(c);
+    ctx.lineWidth=(c.kind==='cloth'||c.kind==='shear')?1.1:(c.kind==='skin'?2:2.2);
+    ctx.globalAlpha=(c.kind==='shear')?0.35:1;
+    ctx.beginPath(); ctx.moveTo(c.a.x,c.a.y); ctx.lineTo(c.b.x,c.b.y); ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+  // pins
+  for(const p of P){
+    if(!p.pin) continue;
+    ctx.beginPath(); ctx.arc(p.x,p.y,10,0,7); ctx.fillStyle='rgba(111,227,255,.10)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x,p.y,4.5,0,7);
+    ctx.lineWidth=2; ctx.strokeStyle='#8fe9ff'; ctx.stroke();
+  }
+  // particles
+  for(const f of FX){
+    ctx.globalAlpha=Math.max(0,f.life*1.8);
+    ctx.fillStyle='#bff2ff'; ctx.fillRect(f.x,f.y,2,2);
+  }
+  ctx.globalAlpha=1;
+  // preview ghost
+  if(drag&&drag.kind==='draw'&&drag.moved){
+    ctx.save();
+    ctx.strokeStyle='rgba(160,235,255,.42)'; ctx.lineWidth=2; ctx.setLineDash([6,5]);
+    if(mode==='cloth'){
+      ctx.strokeRect(Math.min(drag.x0,cursor.x),Math.min(drag.y0,cursor.y),
+        Math.abs(cursor.x-drag.x0),Math.abs(cursor.y-drag.y0));
+    } else {
+      ctx.beginPath(); ctx.moveTo(drag.path[0].x,drag.path[0].y);
+      for(const q of drag.path) ctx.lineTo(q.x,q.y);
+      if(mode==='balloon') ctx.closePath();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // snap highlight
+  if(snapT){
+    ctx.beginPath(); ctx.arc(snapT.x,snapT.y,13,0,7);
+    ctx.strokeStyle='rgba(255,225,130,.9)'; ctx.lineWidth=2; ctx.stroke();
+  }
+  // finger
+  if(cursor.on){
+    const col=drag&&drag.kind==='grab'?'rgba(255,196,90,.95)':
+              (mode==='cut'?'rgba(255,110,120,.95)':'rgba(111,227,255,.9)');
+    ctx.beginPath(); ctx.arc(cursor.x,cursor.y,drag&&drag.kind==='cut'?7:11,0,7);
+    ctx.strokeStyle=col; ctx.lineWidth=2; ctx.stroke();
+  }
+}
+
+// ---------- layout ----------
+function resize(){
+  const nw=window.innerWidth||document.documentElement.clientWidth||800;
+  const nh=window.innerHeight||document.documentElement.clientHeight||600;
+  const oldW=W,oldH=H;
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=nw;H=nh;NARROW=W<520;
+  cv.width=W*dpr; cv.height=H*dpr;
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  MAXP=NARROW?800:1200; RELAX=NARROW?4:6;
+  const dh=document.getElementById('dock').getBoundingClientRect().height||90;
+  const oldFloor=FLOOR;
+  FLOOR=H-dh-10;
+  if(oldW&&oldH&&(oldW!==W||oldH!==H)){
+    // UNIFORM scale only. Scaling x and y by different factors while rest lengths got
+    // the average silently shredded every structure: rotating a phone turned the starting
+    // rope into a crumpled zigzag, because each link ended far shorter than its rest.
+    // Width ratio is the factor because it is exactly invertible — rotate away and back
+    // and you land on 1.0, so a phone toggling its address bar cannot ratchet the world
+    // smaller forever.
+    const s=W/oldW;
+    // anchor to the floor, not to (0,0): things resting on the ground stay on the
+    // ground instead of the whole scene flying up into the title
+    for(const p of P){
+      p.x*=s; p.ox*=s;
+      p.y=FLOOR-(oldFloor-p.y)*s; p.oy=FLOOR-(oldFloor-p.oy)*s;
+    }
+    for(const c of C) c.rest*=s;
+    for(const b of BAL) b.A0*=s*s;
+    // a scale model only behaves like the original if gravity scales with it, otherwise
+    // a shrunken world reads as if every rope is at breaking tension
+    SCALE*=s; G=G0*SCALE;
+  }
+  updCnt();
+}
+window.addEventListener('resize',resize);
+
+// ---------- start scene ----------
+function seed(){
+  const y=Math.max(120,FLOOR*0.30);
+  const x0=W*0.20, x1=W*0.80;
+  batchSeq++;
+  const a=addPt(x0,y,true), b=addPt(x1,y,true);
+  // slack rope: sag it so it reads as rope, not wire
+  const n=Math.max(10,Math.round((x1-x0)/STEP));
+  let prev=a; const mid=[];
+  for(let i=1;i<n;i++){
+    const t=i/n;
+    const px=x0+(x1-x0)*t;
+    const py=y+Math.sin(t*Math.PI)*Math.min(70,(x1-x0)*0.09);
+    const p=addPt(px,py,false);
+    addCon(prev,p,'rope',(x1-x0)/n*1.06);   // >1 == slack; a taut seed rope would just snap
+    prev=p; mid.push(p);
+  }
+  addCon(prev,b,'rope',(x1-x0)/n*1.06);
+  // a little ball hanging off the middle
+  const anchor=mid[(mid.length/2)|0];
+  let hang=anchor;
+  for(let i=0;i<3;i++){ const p=addPt(anchor.x,anchor.y+14*(i+1),false); addCon(hang,p,'rope',14); hang=p; }
+  const R=NARROW?16:20, seg=11;
+  const ring=[];
+  for(let i=0;i<seg;i++){
+    const th=i/seg*Math.PI*2;
+    ring.push(addPt(hang.x+Math.cos(th)*R, hang.y+R+Math.sin(th)*R,false));
+  }
+  const cons=[];
+  for(let i=0;i<seg;i++) cons.push(addCon(ring[i],ring[(i+1)%seg],'skin'));
+  for(let i=0;i<seg;i++) addCon(ring[i],ring[(i+2)%seg],'bend');
+  addCon(hang,ring[(seg*3/4)|0],'rope',6);
+  BAL.push({ring,cons:cons.filter(Boolean),A0:Math.abs(polyArea(ring))*1.08,batch:batchSeq});
+  // give it a nudge so the scene is alive on arrival
+  for(const p of mid) p.ox=p.x+0.8;
+  for(const p of ring) p.ox=p.x+1.4;
+  undoStack=[];   // the starting scene isn't undoable
+  cleanup();
+  window.__seedInfo={pts:P.length,cons:C.length};
+}
+
+// ---------- buttons ----------
+document.getElementById('m_rope').onclick=()=>setMode('rope');
+document.getElementById('m_cloth').onclick=()=>setMode('cloth');
+document.getElementById('m_balloon').onclick=()=>setMode('balloon');
+document.getElementById('m_cut').onclick=()=>setMode('cut');
+document.getElementById('undo').onclick=undo;
+
+// ---------- loop ----------
+let acc=0,last=performance.now();
+function frame(t){
+  let dt=(t-last)/1000; last=t;
+  if(!(dt>0)) dt=DT;
+  acc+=Math.min(dt,0.25);
+  let n=0;
+  while(acc>=DT&&n<4){ step(); acc-=DT; n++; }
+  if(acc>DT) acc=0;
+  if(hintLock>0){ hintLock-=dt; if(hintLock<=0) say(HINTS[mode]); }
+  draw();
+  requestAnimationFrame(frame);
+}
+resize(); seed(); say(HINTS.rope);
+requestAnimationFrame(frame);
+
+// ---------- test hooks ----------
+window.__tick=(n)=>{ for(let i=0;i<(n||1);i++) step(); draw(); return P.length; };
+window.__state=()=>{
+  let nan=0, minY=1e9, maxY=-1e9;
+  for(const p of P){ if(!isFinite(p.x)||!isFinite(p.y)) nan++; if(p.y<minY)minY=p.y; if(p.y>maxY)maxY=p.y; }
+  return {pts:P.length,cons:C.filter(c=>!c.dead).length,balloons:BAL.length,cloths:CLO.length,
+          pins:P.filter(p=>p.pin).length,nan,minY:Math.round(minY),maxY:Math.round(maxY),
+          mode,floor:Math.round(FLOOR),W,H,maxp:MAXP,undo:undoStack.length};
+};
+window.__mode=setMode;
+window.__balls=()=>BAL.map(b=>{const c=centroid(b.ring);
+  return {x:Math.round(c.x),y:Math.round(c.y),r:Math.round(Math.sqrt(Math.abs(polyArea(b.ring))/Math.PI))};});
+window.__dump=()=>({
+  P:P.map(p=>[Math.round(p.x),Math.round(p.y),p.pin?1:0,p.warm]),
+  C:C.map(c=>[P.indexOf(c.a),P.indexOf(c.b),Math.round(c.rest),c.kind,Math.round(Math.hypot(c.b.x-c.a.x,c.b.y-c.a.y))])
+});
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,831 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Pottery · Clay Wheel</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#e9e3d8;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#5a4a3c;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0;touch-action:none}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:20px;font-weight:800;letter-spacing:5px;text-shadow:0 1px 0 rgba(255,255,255,.75)}
+  .title span{display:block;font-size:12px;opacity:.6;margin-top:3px;font-weight:600;letter-spacing:1px}
+
+  .dock{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom));transform:translateX(-50%);
+    z-index:6;pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:8px;max-width:96vw}
+  .bar{pointer-events:auto;display:flex;gap:8px;justify-content:center;
+    background:rgba(255,253,247,.72);border:1px solid rgba(140,115,88,.2);
+    padding:8px;border-radius:16px;backdrop-filter:blur(10px);box-shadow:0 8px 26px rgba(130,105,78,.2)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#5a4a3c;border:none;background:#fffdf7;
+    padding:9px 13px;border-radius:11px;cursor:pointer;white-space:nowrap;position:relative;overflow:hidden;
+    box-shadow:0 2px 0 rgba(130,105,78,.18);transition:transform .08s}
+  .bar button:active{transform:translateY(1px);box-shadow:0 1px 0 rgba(130,105,78,.18)}
+  .bar button[disabled]{opacity:.4;cursor:default}
+  #reset .fill{position:absolute;left:0;top:0;bottom:0;width:0%;background:rgba(190,110,70,.3);pointer-events:none}
+  .hint{font-size:13px;font-weight:600;opacity:.62;pointer-events:none;white-space:nowrap;
+    text-shadow:0 1px 0 rgba(255,255,255,.8)}
+  .stat{position:fixed;top:16px;right:16px;z-index:5;font-size:11.5px;font-weight:700;opacity:.55;
+    letter-spacing:.5px;text-align:right;pointer-events:none;line-height:1.5}
+
+  /* ---- 架子 ---- */
+  .shelf{position:fixed;z-index:7;background:rgba(252,248,240,.82);backdrop-filter:blur(10px);
+    border-left:1px solid rgba(140,115,88,.22);right:0;top:0;bottom:0;width:132px;
+    display:flex;flex-direction:column}
+  .shelf h4{margin:0;padding:12px 12px 6px;font-size:11px;letter-spacing:2px;opacity:.55;font-weight:800}
+  .shelf .items{flex:1;overflow-y:auto;overflow-x:hidden;padding:2px 8px 12px;
+    display:flex;flex-direction:column;gap:6px;align-items:center}
+  .shelf .handle{display:none}
+  .it{width:104px;background:rgba(255,255,255,.5);border-radius:9px;padding:4px 0 3px;text-align:center;
+    box-shadow:0 1px 0 rgba(130,105,78,.14)}
+  .it canvas{display:block;margin:0 auto}
+  .it i{font-style:normal;font-size:10px;opacity:.6;font-weight:700;letter-spacing:1px}
+  .empty{font-size:11px;opacity:.42;text-align:center;padding:14px 6px;line-height:1.7;font-weight:600}
+
+  @media (max-width:660px){
+    .shelf{left:0;right:0;top:auto;bottom:0;width:auto;height:calc(100px + env(safe-area-inset-bottom));border-left:none;
+      border-top:1px solid rgba(140,115,88,.22);border-radius:14px 14px 0 0;transition:height .22s}
+    .shelf.open{height:48vh}
+    .shelf h4{display:none}
+    .shelf .handle{display:block;height:20px;position:relative;flex:none;cursor:pointer}
+    .shelf .handle::after{content:"";position:absolute;left:50%;top:8px;transform:translateX(-50%);
+      width:38px;height:4px;border-radius:2px;background:rgba(140,115,88,.32)}
+    .shelf .items{flex-direction:row;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;padding:0 10px 6px;gap:6px;scrollbar-width:none}
+    .shelf .items::-webkit-scrollbar{display:none}
+    .shelf.open .items{flex-wrap:wrap;overflow-y:auto;overflow-x:hidden;align-content:flex-start}
+    .it{width:62px;flex:0 0 auto;padding:3px 0 2px}
+    .it i{display:none}
+    .shelf.open .it i{display:block}
+    .dock{bottom:calc(110px + env(safe-area-inset-bottom))}
+    .shelf.open ~ .dock{opacity:0;pointer-events:none}
+    .title b{font-size:18px}
+    .stat{font-size:10.5px}
+  }
+
+  /* ---- 釉料选择 ---- */
+  .glazes{position:fixed;inset:0;z-index:9;display:none;align-items:center;justify-content:center;
+    flex-direction:column;gap:14px;background:rgba(28,20,14,.5);backdrop-filter:blur(3px)}
+  .glazes.on{display:flex}
+  .glazes p{margin:0;font-size:14px;font-weight:800;letter-spacing:3px;color:#f4e7d4;text-shadow:0 2px 8px #000}
+  .gz{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:92vw;padding:0 10px}
+  .gz button{width:60px;height:72px;border-radius:12px;border:2px solid rgba(255,255,255,.32);cursor:pointer;
+    font:inherit;font-size:10.5px;font-weight:800;color:#fff;letter-spacing:1px;
+    display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px;
+    text-shadow:0 1px 3px rgba(0,0,0,.7);box-shadow:0 6px 18px rgba(0,0,0,.35)}
+  .gz button:active{transform:translateY(2px)}
+  .toast{position:fixed;left:50%;top:15%;transform:translateX(-50%);z-index:10;pointer-events:none;
+    font-size:17px;font-weight:800;letter-spacing:4px;color:#ffd9a0;opacity:0;transition:opacity .35s;
+    text-shadow:0 2px 14px rgba(90,30,0,.85)}
+  .toast.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>Pottery</b><span>press a finger in, the clay bends</span></div>
+<div class="stat" id="stat"></div>
+
+<div class="shelf" id="shelf">
+  <div class="handle" id="handle"></div>
+  <h4>shelf</h4>
+  <div class="items" id="items"></div>
+</div>
+
+<div class="dock">
+  <div class="hint" id="hint">🏺 drag out to widen / in to narrow · up to pull taller · hold still to hollow</div>
+  <div class="bar">
+    <button id="spd">🌀 speed med</button>
+    <button id="fire">🔥 fire</button>
+    <button id="reset"><span class="fill"></span><span>↺ reset (hold)</span></button>
+  </div>
+</div>
+
+<div class="glazes" id="glazes"><p>pick a glaze</p><div class="gz" id="gz"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const $=id=>document.getElementById(id);
+const hintEl=$('hint'), statEl=$('stat'), itemsEl=$('items'), shelfEl=$('shelf');
+let W=0,H=0,dpr=1,narrow=false;
+
+/* ================= 剖面数据（世界单位，与像素无关 → resize 零损失） ============ */
+const N=120, STEP=3;
+let ro=new Float64Array(N), ri=new Float64Array(N);
+let bias=new Float64Array(N), stress=new Float64Array(N), amp=new Float64Array(N);
+let Hh=0.6, V0=0;
+const HMIN=0.30, HMAX=2.32, RMIN=0.07, RMAX=1.15;
+
+const PI=Math.PI;
+function areaAt(i){ return PI*(ro[i]*ro[i]-ri[i]*ri[i]); }
+function volume(){ let s=0; for(let i=0;i<N;i++) s+=areaAt(i); return s*(Hh/N); }
+function setFromAC(i,A,rc){           // 由「泥的截面积 + 中心半径」反解内外半径
+  rc=Math.max(RMIN,Math.min(RMAX,rc)); A=Math.max(1e-5,A);
+  let w=A/(2*PI*rc);
+  if(w>=2*rc){ ri[i]=0; ro[i]=Math.sqrt(A/PI); }       // 实心
+  else { ro[i]=rc+w/2; ri[i]=rc-w/2; }
+}
+function rcAt(i){ return (ro[i]+ri[i])/2; }
+
+function resetClay(){
+  for(let i=0;i<N;i++){
+    const t=i/(N-1);
+    ro[i]=0.44*(1-0.055*t*t);   // 一坨墩实的泥
+    const th=0.155+0.60*Math.exp(-t*t/0.030);           // 底厚（实心）→ 往上变薄
+    ri[i]=Math.max(0,ro[i]-th);
+    bias[i]=0; stress[i]=0; amp[i]=0;
+  }
+  Hh=0.62; V0=volume(); collapse=null; wobSeed=Math.random()*99;
+}
+
+/* ================= 状态 ================= */
+let phase=0, spd=1, T=0;
+const SPD=[{n:'slow',w:0.95,sm:0.012,wob:0.55},{n:'med',w:1.95,sm:0.085,wob:1.0},{n:'fast',w:3.6,sm:0.32,wob:1.9}];
+let mode='throw';          // throw | kiln | pick | open | done
+let kilnT=0, openT=0, glaze=null, firedCols=null, lastKiln=false;
+let collapse=null, collapseCool=0, wobSeed=0, shakeMem=0, collapses=0, riskK=0;
+let shelf=[], shelfOpen=false;
+const CLAY=[176,116,79], CLAY_PALE=[228,214,196];
+
+/* ================= 存档 ================= */
+const KEY='backyard-clay-wheel-v1';
+const PACK=3;
+function packArr(a){ const o=[]; for(let i=0;i<N;i+=PACK) o.push(+a[i].toFixed(3)); return o; }
+function unpackArr(o){ const a=new Float64Array(N);
+  for(let i=0;i<N;i++){ const f=i/PACK, k=Math.min(o.length-1,Math.floor(f)), k2=Math.min(o.length-1,k+1);
+    a[i]=o[k]+(o[k2]-o[k])*(f-k); } return a; }
+function save(){
+  try{ localStorage.setItem(KEY,JSON.stringify({v:1,items:shelf.map(s=>({
+    o:s.o,i:s.i,b:s.b,H:+s.H.toFixed(3),g:s.g,t:s.type}))})); }catch(e){}
+}
+function load(){
+  try{ const d=JSON.parse(localStorage.getItem(KEY)||'null'); if(!d||!d.items) return;
+    shelf=d.items.filter(x=>x&&x.o&&x.i).map(x=>({o:x.o,i:x.i,b:x.b||x.o.map(()=>0),H:x.H,g:x.g,type:x.t}));
+  }catch(e){ shelf=[]; }
+}
+
+/* ================= 音效 ================= */
+let AC=null,noiseBuf=null,scrapeSrc=null,scrapeGain=null;
+function audio(){
+  if(AC) return AC;
+  try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return null; }
+  const n=AC.sampleRate*2; noiseBuf=AC.createBuffer(1,n,AC.sampleRate);
+  const d=noiseBuf.getChannelData(0); for(let i=0;i<n;i++) d[i]=Math.random()*2-1;
+  scrapeSrc=AC.createBufferSource(); scrapeSrc.buffer=noiseBuf; scrapeSrc.loop=true;
+  const bp=AC.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=760; bp.Q.value=1.1;
+  scrapeGain=AC.createGain(); scrapeGain.gain.value=0;
+  scrapeSrc.connect(bp); bp.connect(scrapeGain); scrapeGain.connect(AC.destination);
+  scrapeSrc.start();
+  return AC;
+}
+function scrape(v){ if(!scrapeGain||!AC) return;
+  try{ scrapeGain.gain.setTargetAtTime(Math.min(0.055,v),AC.currentTime,0.05);}catch(e){} }
+function whoosh(){ const a=audio(); if(!a) return;
+  const s=a.createBufferSource(); s.buffer=noiseBuf;
+  const f=a.createBiquadFilter(); f.type='lowpass'; f.frequency.setValueAtTime(200,a.currentTime);
+  f.frequency.exponentialRampToValueAtTime(1400,a.currentTime+1.0);
+  const g=a.createGain(); g.gain.setValueAtTime(0.0001,a.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.07,a.currentTime+0.5);
+  g.gain.exponentialRampToValueAtTime(0.0001,a.currentTime+1.5);
+  s.connect(f);f.connect(g);g.connect(a.destination); s.start(); s.stop(a.currentTime+1.6);
+}
+function chime(){ const a=audio(); if(!a) return;
+  [1244,1864,2489].forEach((fr,k)=>{ const o=a.createOscillator(),g=a.createGain();
+    o.type='sine'; o.frequency.value=fr;
+    g.gain.setValueAtTime(0.0001,a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.075/(k+1),a.currentTime+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001,a.currentTime+1.5+k*0.3);
+    o.connect(g);g.connect(a.destination); o.start(); o.stop(a.currentTime+2.0); });
+}
+function thud(){ const a=audio(); if(!a) return;
+  const o=a.createOscillator(),g=a.createGain(); o.type='sine';
+  o.frequency.setValueAtTime(150,a.currentTime);
+  o.frequency.exponentialRampToValueAtTime(48,a.currentTime+0.35);
+  g.gain.setValueAtTime(0.001,a.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.10,a.currentTime+0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001,a.currentTime+0.5);
+  o.connect(g);g.connect(a.destination);o.start();o.stop(a.currentTime+0.55);
+}
+
+/* ================= 几何（世界 → 屏幕） ================= */
+const FLAT=0.33;
+let geo={cx:0,baseY:0,s:1}, zoomRef=1.35, availH=1, availW=1;
+function layout(){
+  narrow=W<660;
+  const padTop=narrow?86:74, padBot=narrow?168:118;
+  availH=Math.max(120,H-padTop-padBot);
+  availW=(narrow?W*0.96:(W-132)*0.90);
+  geo.cx=narrow? W/2 : (W-132)/2;
+  geo.baseY=padTop+availH*(narrow?0.82:0.88);
+  applyZoom();
+}
+// 镜头跟着坯长高慢慢拉远：矮的时候够大好下手，拉到很高也不会出画
+function applyZoom(){
+  let maxR=0.3; for(let i=0;i<N;i++) if(ro[i]>maxR) maxR=ro[i];
+  geo.s=Math.min(availH/Math.max(1.22,zoomRef), availW/(2*Math.max(0.62,maxR*1.12)));
+}
+function layerY(i){ return geo.baseY - (i/(N-1))*Hh*geo.s; }
+function yToLayer(y){ return Math.max(0,Math.min(N-1,(geo.baseY-y)/Math.max(1e-6,Hh*geo.s)*(N-1))); }
+function offAt(i){ return (bias[i]+amp[i]*Math.sin(phase*1.0+i*0.11+wobSeed))*geo.s; }
+
+/* ================= 光照 ================= */
+const L=(()=>{const v=[-0.46,0.64,0.62];const n=Math.hypot(v[0],v[1],v[2]);return [v[0]/n,v[1]/n,v[2]/n];})();
+const AMB=0.30;
+function mix(a,b,t){ return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t]; }
+function rgb(c,a){ return 'rgba('+(c[0]|0)+','+(c[1]|0)+','+(c[2]|0)+','+(a===undefined?1:a)+')'; }
+
+/* 每层的底色：生泥（按壁厚发白）或 已上釉 */
+function colorAt(i,prof){
+  if(prof&&prof.cols) return prof.cols[i];
+  const th=ro[i]-ri[i];
+  const pale=Math.max(0,Math.min(1,(0.062-th)/0.05));
+  return mix(CLAY,CLAY_PALE,pale*0.85);
+}
+
+/* ================= 渲染主体 ================= */
+function bodyGradient(g,col,m,uSpec,specStr,specW){
+  const sw=specW||0.30;
+  const inv=1/Math.sqrt(1+m*m), nu=-m*inv;
+  for(let k=0;k<=8;k++){
+    const f=k/8, u=-1+2*f;
+    const sz=Math.sqrt(Math.max(0,1-u*u));
+    const nx=inv*u, nz=inv*sz, ny=nu;
+    let d=Math.max(0,nx*L[0]+nz*L[1]+ny*L[2]);
+    let lum=AMB+0.92*d;
+    lum*=(0.62+0.38*Math.pow(sz,0.55));                  // 侧影自然压暗，出体积
+    const sp=specStr*Math.exp(-Math.pow((u-uSpec)/sw,2))*Math.pow(sz,0.7);
+    const edge=Math.pow(1-sz,3.0)*(u>0?0.16:0.05);       // 边缘微反光
+    let c=[col[0]*lum,col[1]*lum,col[2]*lum];
+    c=[c[0]+255*(sp+edge),c[1]+250*(sp+edge),c[2]+240*(sp+edge)];
+    g.addColorStop(f,'rgb('+Math.min(255,c[0]|0)+','+Math.min(255,c[1]|0)+','+Math.min(255,c[2]|0)+')');
+  }
+}
+
+// 通用：把 prof 描述的坯画到 c 上。prof 为 null 表示画当前正在拉的坯。
+function drawPot(c,G,prof,opt){
+  opt=opt||{};
+  const s=G.s, cx=G.cx, baseY=G.baseY, hh=prof?prof.H:Hh;
+  const dhw=hh/(N-1);
+  const RO=prof?prof.ro:ro, RI=prof?prof.ri:ri, BI=prof?prof.bias:null;
+  const uSpec=opt.uSpec!==undefined?opt.uSpec:0.40*Math.sin(phase*0.85);
+  const specStr=opt.spec!==undefined?opt.spec:(0.15+0.03*spd);
+  const yOf=i=>baseY-(i/(N-1))*hh*s;
+  const oOf=i=>BI?BI[i]*s:offAt(i);
+
+  // 接触阴影
+  const R0=RO[0]*s;
+  c.save(); c.globalAlpha=0.20; c.fillStyle='#4a3a2c'; c.beginPath();
+  c.ellipse(cx+oOf(0), baseY+2, R0*1.18, R0*FLAT*1.15, 0,0,PI*2); c.fill(); c.restore();
+
+  // 主体：从下往上逐带
+  for(let i=0;i<N-1;i+=STEP){
+    const j=Math.min(N-1,i+STEP);
+    const y0=yOf(i), y1=yOf(j);
+    const r0=Math.max(0.5,RO[i]*s), r1=Math.max(0.5,RO[j]*s);
+    const x0=cx+oOf(i), x1=cx+oOf(j);
+    const ry0=r0*FLAT, ry1=r1*FLAT;
+    const m=(RO[j]-RO[i])/(dhw*(j-i)||1e-6);
+    const col=prof?prof.cols[(i+j)>>1]:colorAt((i+j)>>1,null);
+    const xm=(x0+x1)/2, rm=Math.max(r0,r1);
+    const g=c.createLinearGradient(xm-rm,0,xm+rm,0);
+    bodyGradient(g,col,m,uSpec,specStr,opt.specW);
+    c.beginPath();
+    c.moveTo(x0-r0,y0);
+    c.lineTo(x1-r1,y1);
+    c.ellipse(x1,y1,r1,ry1,0,PI,0,true);
+    c.lineTo(x0+r0,y0);
+    c.ellipse(x0,y0,r0,ry0,0,0,PI,false);
+    c.closePath(); c.fillStyle=g; c.fill();
+  }
+
+  // 旋转纹（手指拉出来的竖向拉痕）→ 转速的视觉证据
+  if(!opt.still){
+    c.save(); c.globalCompositeOperation='overlay';
+    for(let k=0;k<11;k++){
+      const th=k*(PI*2/11)+phase;
+      const st=Math.sin(th); if(st<=0.06) continue;
+      c.beginPath(); let started=false;
+      for(let i=2;i<N;i+=6){
+        if(RO[i]<0.02) continue;
+        const r=RO[i]*s, x=cx+oOf(i)+r*Math.cos(th), y=yOf(i);
+        if(!started){c.moveTo(x,y);started=true;} else c.lineTo(x,y);
+      }
+      c.strokeStyle='rgba(255,238,214,'+(0.17*st*st).toFixed(3)+')';
+      c.lineWidth=Math.max(1,s*0.013); c.stroke();
+    }
+    c.restore();
+  }
+
+  // 口沿 + 内腔
+  const top=N-1;
+  const rt=Math.max(0.6,RO[top]*s), rit=Math.max(0,RI[top]*s), yt=yOf(top), xt=cx+oOf(top);
+  const rimCol=prof?prof.cols[top]:colorAt(top,null);
+  const rg=c.createLinearGradient(xt-rt,0,xt+rt,0);
+  for(let k=0;k<=6;k++){ const f=k/6,u=-1+2*f;
+    const lum=0.55+0.62*Math.max(0,-(u*L[0])+0.55*L[2]);
+    rg.addColorStop(f,rgb([Math.min(255,rimCol[0]*lum+26),Math.min(255,rimCol[1]*lum+22),Math.min(255,rimCol[2]*lum+18)])); }
+  c.beginPath(); c.ellipse(xt,yt,rt,rt*FLAT,0,0,PI*2); c.fillStyle=rg; c.fill();
+
+  if(rit>1.0){
+    const ig=c.createLinearGradient(0,yt-rit*FLAT,0,yt+rit*FLAT);
+    const dark=prof?mix(rimCol,[18,12,9],0.62):[62,38,25];
+    ig.addColorStop(0,rgb(mix(dark,[255,235,210],0.30)));
+    ig.addColorStop(0.45,rgb(dark));
+    ig.addColorStop(1,rgb(mix(dark,[0,0,0],0.45)));
+    c.beginPath(); c.ellipse(xt,yt,rit,rit*FLAT,0,0,PI*2); c.fillStyle=ig; c.fill();
+    // 内壁的一抹反光
+    c.save(); c.beginPath(); c.ellipse(xt,yt,rit,rit*FLAT,0,0,PI*2); c.clip();
+    c.beginPath(); c.ellipse(xt,yt-rit*FLAT*0.42,rit*0.92,rit*FLAT*0.62,0,0,PI*2);
+    c.fillStyle='rgba(255,225,190,0.13)'; c.fill(); c.restore();
+  }
+  // 亮口沿
+  c.beginPath(); c.ellipse(xt,yt,rt,rt*FLAT,0,0,PI*2);
+  c.strokeStyle='rgba(255,246,228,0.55)'; c.lineWidth=Math.max(1,s*0.012); c.stroke();
+}
+
+/* ================= 转盘 ================= */
+function drawWheel(){
+  const s=geo.s, cx=geo.cx, y=geo.baseY;
+  let maxR=0.3; for(let i=0;i<N;i++) if(ro[i]>maxR) maxR=ro[i];
+  const R=Math.max(30, Math.min(Math.max(s*0.70, maxR*s*1.20), W*0.47));
+  ctx.save();
+  ctx.beginPath(); ctx.ellipse(cx,y+s*0.055,R*1.03,R*FLAT*1.03,0,0,PI*2);
+  ctx.fillStyle='rgba(74,58,44,.22)'; ctx.fill();
+  const g=ctx.createLinearGradient(cx-R,0,cx+R,0);
+  g.addColorStop(0,'#8a6a49'); g.addColorStop(0.35,'#b08a60');
+  g.addColorStop(0.62,'#c49a6c'); g.addColorStop(1,'#7d5f42');
+  ctx.beginPath(); ctx.ellipse(cx,y,R,R*FLAT,0,0,PI*2); ctx.fillStyle=g; ctx.fill();
+  // 木纹圈
+  for(let k=1;k<=7;k++){
+    const f=k/8, rr=R*f;
+    ctx.beginPath(); ctx.ellipse(cx,y,rr,rr*FLAT,0,0,PI*2);
+    ctx.strokeStyle='rgba(78,56,36,'+(0.10+0.05*Math.sin(k*2.1)).toFixed(3)+')';
+    ctx.lineWidth=1+ (k%3===0?0.8:0); ctx.stroke();
+  }
+  // 转动记号
+  const th=phase;
+  ctx.beginPath();
+  ctx.moveTo(cx+R*0.52*Math.cos(th), y+R*FLAT*0.52*Math.sin(th));
+  ctx.lineTo(cx+R*0.96*Math.cos(th), y+R*FLAT*0.96*Math.sin(th));
+  ctx.strokeStyle='rgba(64,44,26,.35)'; ctx.lineWidth=3; ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(cx,y,R,R*FLAT,0,0,PI*2);
+  ctx.strokeStyle='rgba(60,42,26,.35)'; ctx.lineWidth=2; ctx.stroke();
+  ctx.restore();
+}
+
+/* ================= 器型判定 ================= */
+function classify(RO,RI,hh){
+  let maxR=0.02, mi=0;
+  for(let i=0;i<N;i++) if(RO[i]>maxR){ maxR=RO[i]; mi=i; }
+  const mouth=RO[N-1], base=RO[4];
+  let waist=9; for(let i=(N*0.5)|0;i<N-8;i++) if(RO[i]<waist) waist=RO[i];
+  const hr=hh/(2*maxR), neck=mouth/maxR, belly=maxR/Math.max(0.02,(mouth+base)/2);
+  const flare=mouth/Math.max(0.02,waist);   // 口比上半身最细处宽多少 → 喇叭口
+  if(hr<0.42) return 'plate';
+  if(flare>2.2&&hr>0.50) return 'vase';        // 口沿明显外翻的喇叭口
+  if(hr<0.80) return neck>0.92?'bowl':'basin';
+  if(neck<0.62) return hr>1.5?'bottle':'jar';
+  if(belly>1.22) return hr>1.6?'bottle':'jar';
+  if(maxR<0.34&&hr>1.0) return 'cup';
+  if(hr>2.0) return 'bottle';
+  return 'crock';
+}
+
+/* ================= 釉 ================= */
+const GLAZES=[
+  {id:0,n:'celadon',c:[122,164,136]},{id:1,n:'sky blue',c:[104,142,186]},
+  {id:2,n:'persimmon',c:[196,96,44]},{id:3,n:'moon white',c:[226,222,206]},{id:4,n:'black gold',c:[52,44,42]}
+];
+function rnd(seed){ let s=seed>>>0||1; return ()=>{ s^=s<<13;s>>>=0;s^=s>>17;s^=s<<5;s>>>=0; return s/4294967296; }; }
+// 一维自上而下流动 + 混色，跑完存成静态色数组
+function computeGlaze(RO,RI,hh,g){
+  const R=rnd(g.seed);
+  const th=new Float64Array(N);
+  for(let i=0;i<N;i++) th[i]=0.55+0.5*R();
+  const dhw=hh/(N-1);
+  for(let it=0;it<70;it++){
+    for(let i=N-1;i>0;i--){
+      const slope=Math.abs(RO[i]-RO[i-1])/dhw;
+      const flow=0.16/(1+slope*2.6);           // 平缓处留得住，陡处流下去
+      const q=Math.min(th[i]*flow, th[i]*0.5);
+      th[i]-=q; th[i-1]+=q;
+    }
+    th[N-1]*=0.985;                            // 口沿越烧越薄 → 露胎
+  }
+  const body=[128,78,52];
+  const cols=new Array(N);
+  const alt=g.kiln? GLAZES[(g.id+2+((g.seed>>3)%3))%5].c : null;
+  const R2=rnd(g.seed*7+13);
+  const noise=new Float64Array(N); let v=0;
+  for(let i=0;i<N;i++){ v=v*0.86+(R2()-0.5); noise[i]=v; }
+  for(let i=0;i<N;i++){
+    const t=Math.max(0,Math.min(1,th[i]*0.85));
+    let c=mix(body,g.base,Math.min(1,t*1.25));
+    c=mix(c,[g.base[0]*0.55,g.base[1]*0.55,g.base[2]*0.62],Math.max(0,t-1.0)*0.8);  // 厚处发深
+    if(alt){ const k=Math.max(0,Math.min(1,(noise[i]+0.5)*1.15))*Math.min(1,t*1.1);
+      c=mix(c,alt,k*0.75);
+      c=mix(c,[236,226,240],Math.max(0,noise[i]-0.55)*0.5); }
+    const rimThin=Math.max(0,1-(N-1-i)/8);
+    c=mix(c,[196,150,116],rimThin*0.55);       // 口沿露胎
+    cols[i]=c;
+  }
+  return cols;
+}
+
+/* ================= 物理步进 ================= */
+const DT=1/60;
+let ptr=null;   // {id,x,y,side,lay,lastX,lastY,still}
+let pendR=0, pendY=0, lastLay=N/2;
+
+function step(dt){
+  T+=dt;
+  const S=SPD[spd];
+  phase+=S.w*dt;
+  if(collapseCool>0) collapseCool-=dt;
+  const zt=Math.max(1.22,Math.min(3.05,Hh*0.95+0.62));   // 拉远得慢一点，让「变高」看得见
+  zoomRef+=(zt-zoomRef)*Math.min(1,dt*2.2); applyZoom();
+
+  if(mode==='kiln'){ kilnT+=dt; if(kilnT>1.25){ mode='pick'; showGlazes(true); } return; }
+  if(mode==='pick') return;
+  if(mode==='open'){ openT+=dt; if(openT>2.1){ finishFire(); } return; }
+
+  // --- 塌 ---
+  if(collapse){
+    collapse.t+=dt/collapse.dur;
+    const e=Math.min(1,collapse.t), k=e<0.5?2*e*e:1-Math.pow(-2*e+2,2)/2;
+    for(let i=0;i<N;i++){
+      ro[i]=collapse.ro0[i]+(collapse.ro1[i]-collapse.ro0[i])*k;
+      ri[i]=collapse.ri0[i]+(collapse.ri1[i]-collapse.ri0[i])*k;
+      bias[i]=collapse.b0[i]+(collapse.b1[i]-collapse.b0[i])*k;
+    }
+    Hh=collapse.H0+(collapse.H1-collapse.H0)*k;
+    if(collapse.t>=1){ collapse=null; collapseCool=2.5; }
+  }
+
+  // --- 手 ---
+  let moved=0;
+  if(ptr&&mode==='throw'&&!collapse){
+    const dxp=ptr.x-ptr.lastX, dyp=ptr.y-ptr.lastY;
+    ptr.lastX=ptr.x; ptr.lastY=ptr.y;
+    moved=Math.hypot(dxp,dyp);
+    ptr.still=moved<0.6? ptr.still+dt : 0;
+    const s=geo.s;
+    pendR += (dxp/s)*ptr.side;          // 向外为正：手往哪边推，壁就往哪边走
+    pendY += (-dyp/s);                  // 向上为正
+    if(ptr.still>0.16) pendR -= 0.55*dt;  // 按住不动 → 往里压，持续挖凹
+    ptr.lay=yToLayer(ptr.y); lastLay=ptr.lay;
+  }
+  // 泥跟不上手：每步只吃掉一部分，剩下的变成「应力」
+  if(Math.abs(pendR)>1e-6||Math.abs(pendY)>1e-6){
+    const capR=0.013, capY=0.017;
+    const takeR=Math.max(-capR,Math.min(capR,pendR));
+    const takeY=Math.max(-capY,Math.min(capY,pendY));
+    pendR-=takeR; pendY-=takeY;
+    pendR*=0.965; pendY*=0.965;   // 只轻微泄掉：手快了泥跟不上，但不白扔
+    const over=(Math.abs(pendR)+Math.abs(pendY))*6;
+    applyBrush(ptr?ptr.lay:lastLay, takeR, takeY, over);
+  } else { pendR=0; pendY=0; }
+
+  // --- 转盘找正：转得快，形状被抹顺；转得慢，手上的疙瘩留得住 ---
+  if(mode==='throw'&&!collapse){
+    const sm=S.sm;
+    const rcA=new Float64Array(N), A=new Float64Array(N);
+    for(let i=0;i<N;i++){ rcA[i]=rcAt(i); A[i]=areaAt(i); }
+    const rc2=new Float64Array(N), A2=new Float64Array(N);
+    for(let i=0;i<N;i++){
+      const a=rcA[Math.max(0,i-1)], b=rcA[Math.min(N-1,i+1)];
+      rc2[i]=rcA[i]+sm*(a+b-2*rcA[i]);
+      const pa=A[Math.max(0,i-1)], pb=A[Math.min(N-1,i+1)];
+      A2[i]=A[i]+sm*0.7*(pa+pb-2*A[i]);          // 拉普拉斯：总量守恒
+    }
+    for(let i=0;i<N;i++) setFromAC(i,A2[i],rc2[i]);
+    // 体积微修正（数值漂移）
+    const v=volume(); if(v>1e-6){ const f=V0/v;
+      for(let i=0;i<N;i++) setFromAC(i,areaAt(i)*f,rcAt(i)); }
+  }
+
+  // --- 壁厚 / 应力 / 抖动 ---
+  const wobK=SPD[spd].wob;
+  let thinnest=9, thinAt=0, shakeSum=0;
+  for(let i=0;i<N;i++){
+    stress[i]*=Math.pow(0.55,dt);
+    const w=ro[i]-ri[i];
+    const rel=i/(N-1);
+    if(ri[i]>0.004&&rel>0.06&&w<thinnest){ thinnest=w; thinAt=i; }
+    const thin=Math.max(0,Math.min(1,(0.078-w)/0.058));
+    const tall=Math.max(0,(Hh-0.7)/1.8);
+    const target=(0.0022+0.048*Math.pow(thin,1.6))*wobK*(0.45+rel)*(0.5+tall)+stress[i]*0.05;
+    amp[i]+=(target-amp[i])*Math.min(1,dt*5);
+    if(amp[i]>0.026){ bias[i]+=(amp[i]-0.026)*dt*1.1*Math.sin(i*0.042+wobSeed); }  // 抖出永久的歪
+    shakeSum+=amp[i];
+  }
+  shakeMem=shakeSum/N;
+
+  // --- 坍塌判定（宁可宽松）---
+  riskK=0;
+  if(mode==='throw'&&!collapse&&collapseCool<=0&&Hh>0.75){
+    const dhw=Hh/N;
+    // 薄壳失稳：上方压下来的应力 × 半径壁厚比。规则故意宽松，多数手感都烧得成。
+    let load=0, worst=-1, worstK=0;
+    for(let i=N-1;i>=4;i--){
+      load+=areaAt(i)*dhw;
+      if(ri[i]<0.012) continue;
+      const w=Math.max(0.004,ro[i]-ri[i]), A=Math.max(1e-4,areaAt(i));
+      const k=(load/A)*(rcAt(i)/w)*(1+stress[i]*1.2)/6.5;
+      if(k>worstK){ worstK=k; worst=i; }
+    }
+    riskK=worstK;
+    if(worst>0&&worstK>1.0) triggerCollapse(worst);
+  }
+
+  // --- 开窑：釉往下流 ---
+  return;
+}
+
+function applyBrush(p,dRadial,dUp,overwork){
+  if(mode!=='throw'||collapse) return;
+  const sig=10.0;
+  // 1) 竖向：改高度（体积守恒 → 拉高必然变薄）
+  if(Math.abs(dUp)>1e-8){
+    const H2=Math.max(HMIN,Math.min(HMAX,Hh+dUp*1.45));
+    if(H2!==Hh){
+      const f=Hh/H2;
+      for(let i=0;i<N;i++) setFromAC(i,areaAt(i)*f,rcAt(i));
+      Hh=H2;
+    }
+    // 局部质量搬运（把泥往上带 / 往下压），通量式 → 严格守恒
+    const dir=Math.sign(dUp), mag=Math.min(0.30,Math.abs(dUp)*13);
+    const A=new Float64Array(N); for(let i=0;i<N;i++) A[i]=areaAt(i);
+    const rcs=new Float64Array(N); for(let i=0;i<N;i++) rcs[i]=rcAt(i);
+    if(dir>0){ for(let i=N-2;i>=0;i--){ const g=Math.exp(-Math.pow(i-p,2)/(2*sig*sig));
+        const q=A[i]*mag*g*0.5; A[i]-=q; A[i+1]+=q; } }
+    else { for(let i=1;i<N;i++){ const g=Math.exp(-Math.pow(i-p,2)/(2*sig*sig));
+        const q=A[i]*mag*g*0.5; A[i]-=q; A[i-1]+=q; } }
+    for(let i=0;i<N;i++) setFromAC(i,A[i],rcs[i]);
+    // 往上拉的同时自然收一点口
+    if(dir>0) for(let i=0;i<N;i++){ const g=Math.exp(-Math.pow(i-p,2)/(2*sig*sig));
+      setFromAC(i,areaAt(i),rcAt(i)-Math.abs(dUp)*0.60*g); }
+  }
+  // 2) 横向：收放（该层的泥量守恒 → 放宽变薄，收窄变厚）
+  if(Math.abs(dRadial)>1e-8){
+    for(let i=0;i<N;i++){
+      const g=Math.exp(-Math.pow(i-p,2)/(2*sig*sig));
+      if(g<0.004) continue;
+      setFromAC(i,areaAt(i),rcAt(i)+dRadial*g);
+      stress[i]+=overwork*g*0.35;
+    }
+  }
+}
+
+function triggerCollapse(at){
+  const ro1=new Float64Array(N), ri1=new Float64Array(N), b1=new Float64Array(N);
+  const ro0=Float64Array.from(ro), ri0=Float64Array.from(ri), b0=Float64Array.from(bias);
+  const H1=Math.max(HMIN,Hh*(0.70+Math.random()*0.10));
+  const f=Hh/H1;
+  const lean=(Math.random()<0.5?-1:1)*(0.035+Math.random()*0.045);
+  for(let i=0;i<N;i++){
+    const d=(i-at)/22;
+    const bulge=Math.exp(-d*d)*0.30;
+    const A=areaAt(i)*f*(1+ (i<at?0.12:-0.06)*Math.exp(-d*d));
+    let rc=rcAt(i)*(1+bulge)- (i>at? (i-at)/N*0.05:0);
+    rc=Math.max(RMIN,Math.min(RMAX,rc));
+    let w=A/(2*PI*rc);
+    if(w>=2*rc){ ri1[i]=0; ro1[i]=Math.sqrt(A/PI); } else { ro1[i]=rc+w/2; ri1[i]=rc-w/2; }
+    const t=Math.max(0,(i-at+10)/N);
+    b1[i]=bias[i]+lean*t*t*(1+0.35*Math.sin(i*0.035+wobSeed));
+  }
+  collapses++; collapse={t:0,dur:0.75,ro0,ri0,b0,ro1,ri1,b1,H0:Hh,H1};
+  thud(); flash('slumped · still a piece');
+}
+
+/* ================= 烧 ================= */
+function showGlazes(on){ const el=$('glazes'); el.classList.toggle('on',!!on); }
+function startFire(){
+  if(mode!=='throw') return;
+  mode='kiln'; kilnT=0; whoosh(); setHint('into the kiln…');
+}
+function pickGlaze(gi){
+  const kiln=Math.random()<0.13;
+  glaze={id:gi,seed:(Math.random()*1e9)|0,kiln,base:GLAZES[gi].c,n:GLAZES[gi].n};
+  firedCols=computeGlaze(ro,ri,Hh,glaze);
+  lastKiln=kiln;
+  showGlazes(false); mode='open'; openT=0;
+  setHint('opening the kiln…');
+  if(kiln) setTimeout(chime,900);
+}
+function finishFire(){
+  const type=classify(ro,ri,Hh);
+  const item={o:packArr(ro),i:packArr(ri),b:packArr(bias),H:Hh,
+    g:{id:glaze.id,seed:glaze.seed,kiln:glaze.kiln},type};
+  shelf.push(item); let full=false;
+  while(shelf.length>60){ shelf.shift(); full=true; }
+  save(); renderShelf();
+  flash(full?'shelf full · bumped the oldest':((glaze.kiln?'kiln shift · ':'')+GLAZES[glaze.id].n+' '+type));
+  mode='throw'; glaze=null; firedCols=null; resetClay();
+  setHint(defaultHint());
+}
+
+/* ================= 架子 ================= */
+function itemProfile(it){
+  const RO=unpackArr(it.o), RI=unpackArr(it.i), BI=unpackArr(it.b);
+  const g={id:it.g.id,seed:it.g.seed,kiln:it.g.kiln,base:GLAZES[it.g.id].c};
+  return {ro:RO,ri:RI,bias:BI,H:it.H,cols:computeGlaze(RO,RI,it.H,g)};
+}
+function renderShelf(){
+  itemsEl.innerHTML='';
+  if(!shelf.length){ const d=document.createElement('div'); d.className='empty';
+    d.innerHTML=narrow?'fired pieces sit here':'fired pieces<br>sit here'; itemsEl.appendChild(d); updateStat(); return; }
+  const w=narrow?56:96, h=narrow?66:104;
+  for(let k=shelf.length-1;k>=0;k--){
+    const it=shelf[k], p=itemProfile(it);
+    const d=document.createElement('div'); d.className='it';
+    const c=document.createElement('canvas');
+    c.width=w*2; c.height=h*2; c.style.width=w+'px'; c.style.height=h+'px';
+    const cc=c.getContext('2d'); cc.scale(2,2);
+    let maxR=0.05; for(let i=0;i<N;i++) maxR=Math.max(maxR,p.ro[i]);
+    const s=Math.min((h-14)/Math.max(0.4,p.H*1.12),(w-10)/(2*maxR*1.05));
+    drawPot(cc,{cx:w/2,baseY:h-6,s},p,{still:true,uSpec:0.34,spec:0.14});
+    d.appendChild(c);
+    const i2=document.createElement('i');
+    i2.textContent=(it.g.kiln?'✦ ':'')+GLAZES[it.g.id].n+' '+it.type;
+    d.appendChild(i2);
+    itemsEl.appendChild(d);
+  }
+  updateStat();
+}
+function updateStat(){
+  const ts=new Set(), gs=new Set(); let kn=0;
+  shelf.forEach(s=>{ts.add(s.type);gs.add(s.g.id);if(s.g.kiln)kn++;});
+  statEl.innerHTML='shelf '+shelf.length+' pcs<br>shapes '+ts.size+'/8 · glazes '+gs.size+'/5'+(kn?'<br>kiln shift ✦'+kn:'');
+}
+
+/* ================= 画面 ================= */
+let flashT=0;
+function flash(t){ const el=$('toast'); el.textContent=t; el.classList.add('on'); flashT=T;
+  clearTimeout(flash._t); flash._t=setTimeout(()=>el.classList.remove('on'),1700); }
+function setHint(t){ hintEl.textContent=t; }
+function defaultHint(){
+  return narrow?'🏺 out widens · in narrows · up taller · hold to hollow':'🏺 drag out to widen / in to narrow · up to pull taller · hold still to hollow';
+}
+
+function render(){
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  // 背景
+  const bg=ctx.createRadialGradient(geo.cx,geo.baseY-geo.s*0.8,geo.s*0.2,geo.cx,geo.baseY,Math.max(W,H));
+  const kilnMix = mode==='kiln'? Math.min(1,kilnT/0.9) : (mode==='pick'?1:(mode==='open'?Math.max(0,1-openT/1.6):0));
+  if(kilnMix>0){
+    bg.addColorStop(0,'rgb('+(233-150*kilnMix)+','+(227-160*kilnMix)+','+(216-170*kilnMix)+')');
+    bg.addColorStop(1,'rgb('+(214-180*kilnMix)+','+(203-176*kilnMix)+','+(186-165*kilnMix)+')');
+  } else {
+    bg.addColorStop(0,'#f2ece1'); bg.addColorStop(1,'#ddd4c4');
+  }
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+
+  drawWheel();
+
+  // 正在烧：坯上釉的进度
+  let prof=null;
+  if(mode==='open'&&firedCols){
+    const prog=Math.min(1,openT/1.55);
+    const cols=new Array(N);
+    for(let i=0;i<N;i++){
+      const k=(N-1-i)/(N-1);
+      const t=Math.max(0,Math.min(1,(prog*1.35-k)*3.2));
+      cols[i]=mix(colorAt(i,null),firedCols[i],t);
+    }
+    prof={ro,ri,bias,H:Hh,cols};
+  } else if(mode==='pick'||mode==='kiln'){
+    prof=null;
+  }
+  drawPot(ctx,geo,prof,{specW:0.26+0.10*spd});
+
+  // 窑火：边缘泛橙
+  if(kilnMix>0.02){
+    ctx.save(); ctx.globalCompositeOperation='screen';
+    const g2=ctx.createRadialGradient(geo.cx,geo.baseY-geo.s*0.5,geo.s*0.1,geo.cx,geo.baseY-geo.s*0.5,Math.max(W,H)*0.75);
+    g2.addColorStop(0,'rgba(255,140,40,'+(0.16*kilnMix).toFixed(3)+')');
+    g2.addColorStop(0.5,'rgba(255,90,20,'+(0.10*kilnMix).toFixed(3)+')');
+    g2.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=g2; ctx.fillRect(0,0,W,H); ctx.restore();
+    ctx.save(); ctx.globalCompositeOperation='overlay';
+    ctx.fillStyle='rgba(255,120,30,'+(0.14*kilnMix).toFixed(3)+')'; ctx.fillRect(0,0,W,H); ctx.restore();
+  }
+
+  // 顶部读数：现在像个什么 + 壁厚警告（放画面上方，不跟 dock 打架）
+  if(mode==='throw'){
+    const yb=narrow?30:32;
+    ctx.save(); ctx.textAlign='center';
+    ctx.globalAlpha=0.45; ctx.fillStyle='#5a4a3c'; ctx.font='700 13px -apple-system,sans-serif';
+    ctx.fillText(collapse?'…slumping':('looks like a '+classify(ro,ri,Hh)), geo.cx, yb);
+    let mn=9; for(let i=6;i<N;i++) if(ri[i]>0.004) mn=Math.min(mn,ro[i]-ri[i]);
+    if(mn<0.040){
+      ctx.globalAlpha=0.42+0.34*Math.sin(T*7.5);
+      ctx.fillStyle='#a8452c'; ctx.font='700 12px -apple-system,sans-serif';
+      ctx.fillText(mn<0.026?'wall about to break!':'wall too thin', geo.cx, yb+19);
+    }
+    if(riskK>0.70&&!collapse){
+      ctx.globalAlpha=0.45+0.35*Math.sin(T*9);
+      ctx.fillStyle='#93331c'; ctx.font='800 12px -apple-system,sans-serif';
+      ctx.fillText(riskK>0.9?'about to topple!':'getting wobbly', geo.cx, yb+(mn<0.040?36:19));
+    }
+    ctx.restore();
+  }
+}
+
+/* ================= 循环 ================= */
+let acc=0, last=performance.now();
+function frame(now){
+  let dt=(now-last)/1000; last=now;
+  if(dt>0.25) dt=0.25;
+  acc+=dt;
+  let n=0;
+  while(acc>=DT&&n<8){ step(DT); acc-=DT; n++; }
+  render();
+  requestAnimationFrame(frame);
+}
+window.__tick=(n)=>{ n=n||1; for(let k=0;k<n;k++) step(DT); render(); return __state(); };
+window.__reset=()=>{resetClay();zoomRef=1.22;applyZoom();};
+window.__setSpd=(k)=>{spd=k;};
+window.__prof=()=>({ro:Array.from(ro),ri:Array.from(ri),bias:Array.from(bias),H:Hh});
+window.__geo=()=>({cx:geo.cx,baseY:geo.baseY,s:geo.s,narrow,W,H});
+window.__state=()=>{
+  let mn=9,mx=0,bad=0;
+  for(let i=0;i<N;i++){ if(!isFinite(ro[i])||!isFinite(ri[i])||!isFinite(bias[i]))bad++;
+    if(ri[i]>0.004){mn=Math.min(mn,ro[i]-ri[i]);} mx=Math.max(mx,ro[i]); }
+  return {mode,H:+Hh.toFixed(4),V:+volume().toFixed(5),V0:+V0.toFixed(5),minWall:+mn.toFixed(4),
+    maxR:+mx.toFixed(4),type:classify(ro,ri,Hh),shelf:shelf.length,collapsing:!!collapse,
+    nan:bad,collapses,risk:+riskK.toFixed(2),shake:+shakeMem.toFixed(4),spd:SPD[spd].n,phase:+phase.toFixed(2)};
+};
+
+/* ================= 输入 ================= */
+function onDown(e){
+  if(mode!=='throw') return;
+  if(ptr) return;                      // 只认第一根手指
+  audio();
+  const r=cv.getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
+  const top=geo.baseY-Hh*geo.s, maxR=Math.max(...ro)*geo.s;
+  if(y<top-46||y>geo.baseY+26) return;
+  if(Math.abs(x-geo.cx)>maxR*1.9+40) return;
+  try{ cv.setPointerCapture(e.pointerId); }catch(err){}
+  ptr={id:e.pointerId,x,y,lastX:x,lastY:y,side:(x>=geo.cx?1:-1),lay:yToLayer(y),still:0};
+  hintEl.style.opacity=0.25;
+}
+function onMove(e){
+  if(!ptr||e.pointerId!==ptr.id) return;
+  const r=cv.getBoundingClientRect();
+  ptr.x=e.clientX-r.left; ptr.y=e.clientY-r.top;
+  scrape(0.012+Math.min(0.03,Math.hypot(ptr.x-ptr.lastX,ptr.y-ptr.lastY)*0.006));
+}
+function onUp(e){
+  if(!ptr||e.pointerId!==ptr.id) return;
+  ptr=null; scrape(0); hintEl.style.opacity='';
+}
+cv.addEventListener('pointerdown',onDown);
+cv.addEventListener('pointermove',onMove);
+cv.addEventListener('pointerup',onUp);
+cv.addEventListener('pointercancel',onUp);
+cv.addEventListener('pointerleave',onUp);
+
+/* 按钮 */
+$('spd').addEventListener('click',()=>{ audio(); spd=(spd+1)%3; $('spd').textContent='🌀 speed '+SPD[spd].n;
+  setHint(spd===0?'slow: easy to control, rougher shape':spd===2?'fast: smoother, but one slip ruins it':'med: a bit steadier');
+  clearTimeout($('spd')._t); $('spd')._t=setTimeout(()=>setHint(defaultHint()),2200); });
+$('fire').addEventListener('click',()=>{ audio(); startFire(); });
+(()=>{ const b=$('reset'), fill=b.querySelector('.fill'); let t0=0,raf=0;
+  const start=e=>{ e.preventDefault(); audio(); t0=performance.now();
+    const tick=()=>{ const p=Math.min(1,(performance.now()-t0)/700); fill.style.width=(p*100)+'%';
+      if(p>=1){ stop(); resetClay(); flash('a fresh lump of clay'); } else raf=requestAnimationFrame(tick); };
+    raf=requestAnimationFrame(tick); };
+  const stop=()=>{ cancelAnimationFrame(raf); fill.style.width='0%'; };
+  b.addEventListener('pointerdown',start);
+  ['pointerup','pointerleave','pointercancel'].forEach(k=>b.addEventListener(k,stop));
+})();
+$('handle').addEventListener('click',()=>{ shelfOpen=!shelfOpen; shelfEl.classList.toggle('open',shelfOpen); });
+
+// 釉料按钮
+GLAZES.forEach(g=>{ const b=document.createElement('button');
+  b.style.background='linear-gradient(160deg,rgb('+g.c.map(v=>Math.min(255,v+34)).join(',')+'),rgb('+g.c.join(',')+'))';
+  b.textContent=g.n; b.addEventListener('click',()=>pickGlaze(g.id)); $('gz').appendChild(b); });
+
+/* resize：剖面是矢量的，只重算比例，作品零损失 */
+function resize(){
+  dpr=Math.min(2,window.devicePixelRatio||1);
+  W=window.innerWidth; H=window.innerHeight;
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  const wasNarrow=narrow;
+  layout();
+  if(wasNarrow!==narrow){ shelfOpen=false; shelfEl.classList.remove('open'); renderShelf(); setHint(defaultHint()); }
+  render();
+}
+window.addEventListener('resize',resize);
+window.addEventListener('orientationchange',()=>setTimeout(resize,120));
+
+load(); resetClay(); resize(); renderShelf(); setHint(defaultHint());
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

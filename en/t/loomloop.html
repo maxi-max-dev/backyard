@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Loom</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#07070f;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#e8e6ff;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:14px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:20px;font-weight:800;letter-spacing:3px}
+  .title span{display:block;font-size:12px;opacity:.5;margin-top:3px;font-weight:600}
+  .dock{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;flex-direction:column;
+    align-items:center;gap:6px;padding:0 10px 12px;pointer-events:none}
+  .hint{font-size:12px;font-weight:600;opacity:.5;text-align:center;line-height:1.5;pointer-events:none;
+    transition:opacity .6s;max-width:520px}
+  .bar{display:flex;gap:7px;pointer-events:auto;
+    background:rgba(22,20,44,.62);border:1px solid rgba(150,140,255,.2);padding:7px 9px;border-radius:15px;
+    backdrop-filter:blur(8px)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#e8e6ff;border:1px solid rgba(150,140,255,.24);
+    background:rgba(255,255,255,.05);padding:8px 13px;border-radius:11px;cursor:pointer;white-space:nowrap}
+  .bar button.on{background:linear-gradient(90deg,#5ce1e6,#8f6cff);border-color:transparent;color:#0b0a18}
+  .tapmsg{z-index:7;pointer-events:none;align-self:center;
+    font-size:14px;font-weight:700;letter-spacing:1px;color:#bfe9ff;
+    background:rgba(12,12,30,.72);border:1px solid rgba(120,220,255,.3);padding:6px 16px;border-radius:12px;
+    box-shadow:0 0 30px rgba(90,200,255,.18);transition:opacity .4s;animation:bob 2.4s ease-in-out infinite}
+  @keyframes bob{0%,100%{opacity:.75}50%{opacity:1}}
+  .toast{position:fixed;left:50%;top:auto;bottom:120px;transform:translateX(-50%);z-index:8;pointer-events:none;
+    font-size:13px;font-weight:700;color:#0b0a18;background:linear-gradient(90deg,#5ce1e6,#9d7cff);
+    padding:8px 15px;border-radius:12px;opacity:0;transition:opacity .35s;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>Loom</b><span>tap a square and it loops forever</span></div>
+<div class="toast" id="toast"></div>
+<div class="dock">
+  <div class="hint" id="hint">tap a square to loop it · hold for a dim 50/50 square · drag a row's number up/down to set its loop length</div>
+  <div class="tapmsg" id="tapmsg">tap to start sound</div>
+  <div class="bar">
+    <button id="bPlay">⏸ pause</button>
+    <button id="bClear">clear</button>
+    <button id="bRand">shuffle</button>
+    <button id="bSpd">116</button>
+  </div>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const NCOL=16, NROW=6;
+const PENT=[0,3,5,7,10];                       // 小调五声：怎么点都不难听
+const BPMS=[92,116,140];
+
+// ---------- 行定义 ----------
+const ROWDEF=[
+  {name:'high',kind:'tri', deg:12, hue:190},
+  {name:'lead',kind:'tri', deg:9,  hue:225},
+  {name:'lead',kind:'tri', deg:7,  hue:278},
+  {name:'low',kind:'sine',deg:0,  hue:38},
+  {name:'kick',kind:'kick',deg:0,  hue:6},
+  {name:'hat',kind:'hat', deg:0,  hue:158},
+];
+function blankRows(){return ROWDEF.map(d=>({...d,len:NCOL,off:0,p:0,cells:new Array(NCOL).fill(0)}));}
+function presetRows(){
+  const R=blankRows();
+  R[0].cells[4]=1;
+  R[1].cells[0]=1; R[1].cells[6]=1;
+  R[2].cells[10]=1; R[2].cells[14]=2;            // 一个概率格，一开始就在那儿
+  R[3].cells[0]=1; R[3].cells[8]=1;
+  R[4].cells[0]=1; R[4].cells[4]=1; R[4].cells[8]=1; R[4].cells[12]=1;
+  R[5].len=12; R[5].cells[2]=1; R[5].cells[5]=1; R[5].cells[8]=1;  // 默认就有一行是 12
+  return R;
+}
+let rows=presetRows(), bpmIdx=1, running=true;
+
+// ---------- 存档 ----------
+const KEY='loomloop.v1';
+function save(){ try{ localStorage.setItem(KEY,JSON.stringify({
+  b:bpmIdx, r:rows.map(r=>({l:r.len,o:r.off,c:r.cells.join('')}))
+})); }catch(e){} }
+function load(){ try{
+  const s=JSON.parse(localStorage.getItem(KEY)||'null'); if(!s||!s.r||s.r.length!==NROW)return false;
+  bpmIdx=Math.max(0,Math.min(BPMS.length-1,s.b|0));
+  rows=blankRows();
+  s.r.forEach((d,i)=>{ const R=rows[i];
+    R.len=Math.max(4,Math.min(NCOL,d.l|0)); R.off=Math.max(-4,Math.min(4,d.o|0));
+    for(let c=0;c<NCOL;c++){const v=+((d.c||'')[c]||0); R.cells[c]=(v===1||v===2)?v:0;}
+  });
+  return true;
+}catch(e){ return false; } }
+if(!load()) rows=presetRows();
+
+// ---------- 音频 ----------
+let actx=null,master=null,noiseBuf=null,voices=0;
+function initAudio(){
+  if(actx)return;
+  try{
+    actx=new(window.AudioContext||window.webkitAudioContext)();
+    const comp=actx.createDynamicsCompressor();
+    comp.threshold.value=-16; comp.knee.value=24; comp.ratio.value=8; comp.attack.value=0.004; comp.release.value=0.22;
+    master=actx.createGain(); master.gain.value=0.72;
+    master.connect(comp); comp.connect(actx.destination);
+    const n=actx.sampleRate; noiseBuf=actx.createBuffer(1,n,n);
+    const d=noiseBuf.getChannelData(0); for(let i=0;i<n;i++)d[i]=Math.random()*2-1;
+  }catch(e){ actx=null; }
+}
+function unlock(){
+  const was=actx;
+  initAudio();
+  if(actx&&actx.state==='suspended')actx.resume();
+  if(!was&&actx){ queue.length=0; nextT=clock(); const m=document.getElementById('tapmsg'); m.style.opacity=0; setTimeout(()=>m.remove(),500); }
+}
+function degFreq(d){ const i=((d%5)+5)%5, o=Math.floor(d/5); return 110*Math.pow(2,(PENT[i]+12*o)/12); }
+function noise(t,dur){ const s=actx.createBufferSource(); s.buffer=noiseBuf; s.loop=true;
+  s.playbackRate.value=1; s.start(t,Math.random()*0.5); s.stop(t+dur); return s; }
+function playRow(r,t){
+  if(!actx||!master)return;
+  if(voices>20)return; voices++; setTimeout(()=>{voices--;},600);
+  const g=actx.createGain(); g.connect(master);
+  if(r.kind==='tri'||r.kind==='sine'){
+    const f=degFreq(r.deg+r.off);
+    const o=actx.createOscillator(); o.type=r.kind==='tri'?'triangle':'sine'; o.frequency.setValueAtTime(f,t);
+    const peak=r.kind==='tri'?0.20:0.30, dec=r.kind==='tri'?0.42:0.55;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(peak,t+0.010);
+    g.gain.exponentialRampToValueAtTime(0.0006,t+dec);
+    o.connect(g); o.start(t); o.stop(t+dec+0.05);
+  }else if(r.kind==='kick'){
+    const base=130*Math.pow(2,r.off/12);
+    const o=actx.createOscillator(); o.type='sine';
+    o.frequency.setValueAtTime(base,t); o.frequency.exponentialRampToValueAtTime(base*0.34,t+0.11);
+    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.62,t+0.004);
+    g.gain.exponentialRampToValueAtTime(0.0006,t+0.24);
+    o.connect(g); o.start(t); o.stop(t+0.28);
+    const ng=actx.createGain(); ng.gain.setValueAtTime(0.20,t); ng.gain.exponentialRampToValueAtTime(0.0004,t+0.035);
+    const lp=actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=1400;
+    noise(t,0.05).connect(lp); lp.connect(ng); ng.connect(master);
+  }else{ // hat
+    const hp=actx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=6500*Math.pow(2,r.off/8);
+    g.gain.setValueAtTime(0.16,t); g.gain.exponentialRampToValueAtTime(0.0004,t+0.055);
+    noise(t,0.08).connect(hp); hp.connect(g);
+  }
+}
+
+// ---------- 时钟 / 调度（lookahead，绝不在 rAF 里发声） ----------
+function clock(){ return actx? actx.currentTime : performance.now()/1000; }
+function spb(){ return 60/BPMS[bpmIdx]/4; }   // 一个十六分音符
+let nextT=clock(), gstep=0, queue=[];
+function fireStep(t){
+  const ptrs=[],fired=[];
+  for(let i=0;i<NROW;i++){
+    const r=rows[i], p=r.p%r.len; ptrs.push(p);
+    const v=r.cells[p];
+    const on = v===1 || (v===2 && Math.random()<0.5);
+    if(on){ fired.push(i); if(t!==null) playRow(r,t); }
+  }
+  queue.push({t:t===null?clock():t,g:gstep,ptrs,fired,done:false});
+  if(queue.length>96)queue.splice(0,queue.length-96);
+  for(let i=0;i<NROW;i++){ const r=rows[i]; r.p=(r.p+1)%r.len; }  // 每行自己的指针，这就是 polyrhythm 的全部
+  gstep++;
+}
+function sched(){
+  if(!running||document.hidden)return;
+  const now=clock();
+  if(nextT<now-0.4)nextT=now+0.02;
+  let guard=0;
+  while(nextT<now+0.1 && guard++<40){ fireStep(nextT); nextT+=spb(); }
+}
+setInterval(sched,25);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ nextT=clock()+0.02; queue.length=0; } });
+
+// ---------- 布局 ----------
+let W=0,H=0,dpr=1,cols=NCOL,page=0,gx=0,gy=0,cw=0,ch=0,headW=44,gap=6;
+function layout(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||800; H=window.innerHeight||600;
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  cv.style.width=W+'px'; cv.style.height=H+'px'; ctx.setTransform(dpr,0,0,dpr,0,0);
+  cols = W<620 ? 8 : NCOL;                       // 手机降到 8 列 + 翻页，别做 20px 以下的格子
+  const maxPage=Math.ceil(NCOL/cols)-1; page=Math.max(0,Math.min(maxPage,page));
+  headW = W<620?42:46; gap = W<620?5:6;
+  // bot 要装得下整个 dock（提示条 + 未解锁时的「点一下开声音」+ 按钮栏），否则会压到最后一行格子
+  const pad=W<620?10:16, top=74, bot=(cols<NCOL?146:134);
+  // 窄屏还要给网格下面的翻页圆点+页码留位置，否则它会撞上提示条
+  const availW=W-pad*2, availH=H-top-bot-(cols<NCOL?48:0);
+  cw=(availW-headW-gap-(cols-1)*gap)/cols;
+  // 列少的时候让格子长高一点，把上半屏填满，顺便把触摸目标做大
+  ch=Math.min((availH-(NROW-1)*gap)/NROW, cw*(cols<NCOL?2.0:1.45));
+  const gw=headW+gap+cols*cw+(cols-1)*gap, gh=NROW*ch+(NROW-1)*gap;
+  gx=(W-gw)/2; gy=top+Math.max(0,(availH-gh)*(cols<NCOL?0.32:0.5));
+}
+layout();
+addEventListener('resize',()=>{layout();});   // 只重算几何，图案数据一个都不动
+
+function cellRect(vc,ri){ return {x:gx+headW+gap+vc*(cw+gap), y:gy+ri*(ch+gap), w:cw, h:ch}; }
+function headRect(ri){ return {x:gx, y:gy+ri*(ch+gap), w:headW, h:ch}; }
+
+// ---------- 交互 ----------
+let activeId=null, drag=null, lpTimer=null;
+let seenLenTip=false, seenProbTip=false;
+try{ seenLenTip=localStorage.getItem(KEY+'.tipL')==='1'; seenProbTip=localStorage.getItem(KEY+'.tipP')==='1'; }catch(e){}
+const toastEl=document.getElementById('toast'); let toastT=0;
+function toast(msg){ toastEl.textContent=msg; toastEl.style.opacity=1; clearTimeout(toastT);
+  toastT=setTimeout(()=>{toastEl.style.opacity=0;},2200); }
+let hintGone=false;
+function fadeHint(){ if(hintGone)return; hintGone=true; document.getElementById('hint').style.opacity=.28; }
+
+function hitTest(x,y){
+  for(let ri=0;ri<NROW;ri++){
+    const h=headRect(ri);
+    if(x>=h.x-4&&x<=h.x+h.w+2&&y>=h.y&&y<=h.y+h.h){
+      const arrowZone = x> h.x+h.w-19;
+      return {type:'head',ri,arrowUp: arrowZone && y<h.y+h.h/2, arrow:arrowZone};
+    }
+    for(let vc=0;vc<cols;vc++){
+      const c=page*cols+vc; if(c>=NCOL)break;
+      const r=cellRect(vc,ri);
+      if(x>=r.x-2&&x<=r.x+r.w+2&&y>=r.y-2&&y<=r.y+r.h+2) return {type:'cell',ri,c};
+    }
+  }
+  // 网格下方的翻页点
+  if(cols<NCOL && y>gy+NROW*(ch+gap) && y<gy+NROW*(ch+gap)+44) return {type:'pagedots',x};
+  return null;
+}
+function onDown(e){
+  if(activeId!==null)return;                     // 只认第一根手指
+  activeId=e.pointerId; e.preventDefault();
+  unlock(); fadeHint();
+  const h=hitTest(e.clientX,e.clientY);
+  // 没点中任何东西就别占着 activeId：否则搭在边缘的拇指会把整个玩具锁死
+  if(!h){ drag=null; activeId=null; return; }
+  if(h.type==='pagedots'){ page=page===0?1:0; drag=null; return; }
+  if(h.type==='head'){
+    drag={mode:'head',ri:h.ri,arrow:h.arrow,arrowUp:h.arrowUp,
+          x0:e.clientX,y0:e.clientY,len0:rows[h.ri].len,moved:false};
+    return;
+  }
+  drag={mode:'cell',ri:h.ri,c:h.c,x0:e.clientX,y0:e.clientY,long:false};
+  lpTimer=setTimeout(()=>{                        // 长按 = 概率格
+    if(!drag||drag.mode!=='cell')return;
+    drag.long=true;
+    const r=rows[drag.ri];
+    r.cells[drag.c]= r.cells[drag.c]===2 ? 1 : 2;
+    if(r.cells[drag.c]===2 && !seenProbTip){ seenProbTip=true; try{localStorage.setItem(KEY+'.tipP','1');}catch(e){}
+      toast('dim square = only plays half the time'); }
+    flash(drag.ri,drag.c); save();
+  },420);
+}
+function onMove(e){
+  if(e.pointerId!==activeId||!drag)return;
+  if(drag.mode==='head'){
+    const dy=e.clientY-drag.y0;
+    if(Math.abs(dy)>6)drag.moved=true;
+    const r=rows[drag.ri];
+    const nl=Math.max(4,Math.min(NCOL,drag.len0-Math.round(dy/13)));
+    if(nl!==r.len){
+      r.len=nl; if(r.p>=nl)r.p=r.p%nl;
+      if(!seenLenTip){ seenLenTip=true; try{localStorage.setItem(KEY+'.tipL','1');}catch(e){}
+        toast('this row is now '+nl+' beats, out of step with the rest'); }
+      else toast('this row: '+nl+' beats');
+      save();
+    }
+  }else if(drag.mode==='cell'){
+    if(Math.abs(e.clientX-drag.x0)>10||Math.abs(e.clientY-drag.y0)>10){ clearTimeout(lpTimer); }
+  }
+}
+function onUp(e){
+  if(e.pointerId!==activeId)return;
+  activeId=null; clearTimeout(lpTimer);
+  if(!drag)return;
+  if(drag.mode==='cell'&&!drag.long){
+    const moved=Math.abs(e.clientX-drag.x0)>10||Math.abs(e.clientY-drag.y0)>10;
+    if(!moved){ const r=rows[drag.ri]; r.cells[drag.c]= r.cells[drag.c]?0:1;
+      if(r.cells[drag.c])flash(drag.ri,drag.c); save(); }
+  }else if(drag.mode==='head'&&drag.arrow&&!drag.moved){
+    const r=rows[drag.ri];
+    r.off=Math.max(-4,Math.min(4, r.off+(drag.arrowUp?1:-1)));
+    toast(r.name+' shifted '+(r.off>0?'+':'')+r.off); save();
+  }
+  drag=null;
+}
+cv.addEventListener('pointerdown',onDown);
+addEventListener('pointermove',onMove);
+addEventListener('pointerup',onUp);
+addEventListener('pointercancel',e=>{ if(e.pointerId===activeId){activeId=null;clearTimeout(lpTimer);drag=null;} });
+addEventListener('pointerdown',unlock,{once:false});
+
+// ---------- 按钮 ----------
+const bPlay=document.getElementById('bPlay'),bSpd=document.getElementById('bSpd');
+bPlay.onclick=()=>{ running=!running; nextT=clock()+0.02;
+  bPlay.textContent=running?'⏸ pause':'▶ play'; bPlay.classList.toggle('on',!running); };
+document.getElementById('bClear').onclick=()=>{ rows.forEach(r=>r.cells.fill(0)); save(); toast('cleared, tap squares to weave again'); };
+document.getElementById('bRand').onclick=()=>{ randomize(); save(); toast('here\'s a new one'); };
+bSpd.onclick=()=>{ bpmIdx=(bpmIdx+1)%BPMS.length; bSpd.textContent=BPMS[bpmIdx]; nextT=clock()+0.02; save(); };
+bSpd.textContent=BPMS[bpmIdx];
+
+function randomize(){
+  rows.forEach(r=>{r.cells.fill(0);r.off=0;r.len=NCOL;});
+  const K=rows[4],Hh=rows[5],B=rows[3];
+  [0,4,8,12].forEach(i=>K.cells[i]=1);                       // 四拍的骨架
+  if(Math.random()<0.5)K.cells[14]=2;
+  for(let i=2;i<NCOL;i+=4)Hh.cells[i]=1;
+  if(Math.random()<0.6)Hh.cells[(Math.random()*NCOL)|0]=2;
+  B.cells[0]=1; B.cells[(Math.random()<0.5?6:8)]=1;
+  const spots=[0,2,3,4,6,7,8,10,11,12,14,15];
+  for(let ri=0;ri<3;ri++){ const r=rows[ri], n=2+((Math.random()*2)|0);
+    for(let k=0;k<n;k++){ const c=spots[(Math.random()*spots.length)|0]; r.cells[c]= Math.random()<0.22?2:1; }
+    r.off=((Math.random()*5)|0)-2;
+  }
+  // 错位行：旋律行也要参与，否则每次随机听起来都差不多。鼓(4)留 16 当锚。
+  const oddPool=[5,6,7,9,10,11,12,13,14], pool=[0,1,2,3,5];
+  for(let i=pool.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[pool[i],pool[j]]=[pool[j],pool[i]];}
+  const nOdd=1+((Math.random()*2)|0);                          // 1~2 行错位
+  for(let k=0;k<nOdd;k++) rows[pool[k]].len=oddPool[(Math.random()*oddPool.length)|0];
+  rows.forEach(r=>{ if(r.p>=r.len)r.p=r.p%r.len; });
+}
+
+// ---------- 视觉 ----------
+const ripples=[], flashes=[];
+function flash(ri,c){ const vc=c-page*cols; if(vc<0||vc>=cols)return; const r=cellRect(vc,ri);
+  ripples.push({x:r.x+r.w/2,y:r.y+r.h/2,r0:Math.max(r.w,r.h)*0.42,life:1,hue:rows[ri].hue}); }
+function spawnRipples(ev){ ev.fired.forEach(ri=>{ const c=ev.ptrs[ri]; flash(ri,c); }); }
+
+let cur=null,frac=0;
+function readClock(){
+  const now=clock();
+  while(queue.length>1 && queue[1].t<=now) queue.shift();
+  cur=queue[0]||null;
+  if(cur&&!cur.done&&cur.t<=now){ cur.done=true; spawnRipples(cur); }
+  frac = cur? Math.max(0,Math.min(1,(now-cur.t)/spb())) : 0;
+}
+function rgba(h,s,l,a){ return 'hsla('+h+','+s+'%,'+l+'%,'+a+')'; }
+function rr(x,y,w,h,r){ ctx.beginPath();
+  if(ctx.roundRect)ctx.roundRect(x,y,w,h,r); else ctx.rect(x,y,w,h); }
+
+let tPrev=performance.now(), pulse=0;
+function draw(dt){
+  pulse+=dt;
+  const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#0d0c1c'); g.addColorStop(1,'#06060e');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  const gh=NROW*ch+(NROW-1)*gap, gw=headW+gap+cols*cw+(cols-1)*gap;
+  const glow=ctx.createRadialGradient(gx+gw/2,gy+gh/2,10,gx+gw/2,gy+gh/2,gw*0.7);
+  glow.addColorStop(0,'rgba(90,120,255,0.10)'); glow.addColorStop(1,'rgba(90,120,255,0)');
+  ctx.fillStyle=glow; ctx.fillRect(0,0,W,H);
+
+  // 整段多久回到原点 = 所有行长度的最小公倍数。把这玩具最深的那条性质摆到台面上，
+  // 不然改了长度也不知道自己织出了多长的一段。
+  let L=1;
+  for(let i=0;i<NROW;i++){ let a=L,b=rows[i].len; while(b){const t=b;b=a%b;a=t;} L=L/a*rows[i].len; }
+  const big=L>=10000, ltxt=big?(L/1000).toFixed(L>=100000?0:1)+'k beats':L+' beats';
+  ctx.textAlign='right'; ctx.textBaseline='top';
+  ctx.font='800 '+(W<620?15:17)+'px -apple-system,sans-serif';
+  ctx.fillStyle=L>16?'rgba(150,235,255,0.92)':'rgba(200,230,255,0.5)';
+  ctx.fillText(ltxt, W-(W<620?12:18), 16);
+  ctx.font='700 10px -apple-system,sans-serif';
+  ctx.fillStyle='rgba(200,230,255,0.38)';
+  ctx.fillText('before it all repeats', W-(W<620?12:18), 16+(W<620?18:20));
+
+  // 每行
+  for(let ri=0;ri<NROW;ri++){
+    const R=rows[ri], hue=R.hue, hr=headRect(ri), pos=cur?cur.ptrs[ri]:-1;
+    // 行首窄条
+    ctx.fillStyle='rgba(255,255,255,0.045)'; rr(hr.x,hr.y,hr.w,hr.h,9); ctx.fill();
+    ctx.strokeStyle=rgba(hue,70,65,0.30); ctx.lineWidth=1; rr(hr.x+.5,hr.y+.5,hr.w-1,hr.h-1,9); ctx.stroke();
+    const cy=hr.y+hr.h/2, nx=hr.x+ (hr.w-18)/2 + 1;
+    ctx.fillStyle=rgba(hue,85,72,0.98); ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font='800 '+Math.max(16,Math.min(22,hr.h*0.44))+'px -apple-system,sans-serif';
+    ctx.fillText(String(R.len), nx, cy-6);
+    ctx.font='700 10px -apple-system,sans-serif';
+    if(R.off){ ctx.fillStyle=rgba(hue,80,72,0.95); ctx.fillText((R.off>0?'+':'')+R.off, nx, cy+10); }
+    else { ctx.fillStyle='rgba(255,255,255,0.32)'; ctx.fillText('beats', nx, cy+10); }
+    // 可拖的暗示：数字上下各一条小横线
+    ctx.strokeStyle=rgba(hue,60,60,0.35); ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(nx-7,hr.y+6); ctx.lineTo(nx+7,hr.y+6);
+    ctx.moveTo(nx-7,hr.y+hr.h-6); ctx.lineTo(nx+7,hr.y+hr.h-6); ctx.stroke();
+    // 移调箭头
+    const ax=hr.x+hr.w-10;
+    ctx.fillStyle=rgba(hue,70,66,R.off>=4?0.22:0.66);
+    ctx.beginPath(); ctx.moveTo(ax,cy-14); ctx.lineTo(ax-5,cy-7); ctx.lineTo(ax+5,cy-7); ctx.fill();
+    ctx.fillStyle=rgba(hue,70,66,R.off<=-4?0.22:0.66);
+    ctx.beginPath(); ctx.moveTo(ax,cy+14); ctx.lineTo(ax-5,cy+7); ctx.lineTo(ax+5,cy+7); ctx.fill();
+
+    // 格子
+    for(let vc=0;vc<cols;vc++){
+      const c=page*cols+vc; if(c>=NCOL)break;
+      const r=cellRect(vc,ri), v=R.cells[c], dead=c>=R.len;
+      if(dead){   // 超出这一行循环长度的格子：明显地"关掉"，让长度一眼可见
+        ctx.fillStyle='rgba(0,0,0,0.30)'; rr(r.x,r.y,r.w,r.h,7); ctx.fill();
+        ctx.save(); ctx.beginPath(); rr(r.x,r.y,r.w,r.h,7); ctx.clip();
+        ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1;
+        for(let k=-r.h;k<r.w;k+=7){ ctx.beginPath(); ctx.moveTo(r.x+k,r.y+r.h); ctx.lineTo(r.x+k+r.h,r.y); ctx.stroke(); }
+        if(v){ ctx.fillStyle=rgba(hue,40,45,0.20); rr(r.x+4,r.y+4,r.w-8,r.h-8,5); ctx.fill(); }
+        ctx.restore();
+        continue;
+      }
+      const beat = c%4===0;
+      ctx.fillStyle= beat?'rgba(255,255,255,0.055)':'rgba(255,255,255,0.028)';
+      rr(r.x,r.y,r.w,r.h,7); ctx.fill();
+      if(v){
+        const br=(v===2)?0.42:1, br2=0.82+0.18*Math.sin(pulse*2.6+ri*0.9+c*0.35);
+        ctx.save();
+        ctx.shadowColor=rgba(hue,90,60,0.75*br); ctx.shadowBlur=(v===2?9:17)*br2;
+        const lg=ctx.createLinearGradient(r.x,r.y,r.x,r.y+r.h);
+        lg.addColorStop(0,rgba(hue,92,68,(v===2?0.42:0.95)*br2));
+        lg.addColorStop(1,rgba(hue,88,50,(v===2?0.30:0.80)*br2));
+        ctx.fillStyle=lg; rr(r.x+1.5,r.y+1.5,r.w-3,r.h-3,6); ctx.fill();
+        ctx.restore();
+        if(v===2){ // 概率格：一个半圆标记
+          ctx.fillStyle='rgba(255,255,255,0.62)';
+          ctx.beginPath(); ctx.arc(r.x+r.w/2,r.y+r.h/2,Math.min(r.w,r.h)*0.16,Math.PI*0.5,Math.PI*1.5); ctx.fill();
+          ctx.strokeStyle='rgba(255,255,255,0.45)'; ctx.lineWidth=1;
+          ctx.beginPath(); ctx.arc(r.x+r.w/2,r.y+r.h/2,Math.min(r.w,r.h)*0.16,0,Math.PI*2); ctx.stroke();
+        }
+      }else{
+        ctx.strokeStyle=rgba(hue,45,55,0.20); ctx.lineWidth=1; rr(r.x+.5,r.y+.5,r.w-1,r.h-1,7); ctx.stroke();
+      }
+      // 这一行此刻的指针
+      if(c===pos){
+        ctx.strokeStyle=rgba(hue,95,78,0.95-frac*0.45); ctx.lineWidth=2.5;
+        rr(r.x-2,r.y-2,r.w+4,r.h+4,9); ctx.stroke();
+        ctx.fillStyle=rgba(hue,95,72,0.10); rr(r.x,r.y,r.w,r.h,7); ctx.fill();
+      }
+    }
+    // 循环回折点：这一行走到这里就跳回开头
+    const bvc=R.len-page*cols;
+    if(R.len<NCOL && bvc>0 && bvc<=cols){
+      const bx=gx+headW+gap+bvc*(cw+gap)-gap/2;
+      ctx.strokeStyle=rgba(hue,90,70,0.85); ctx.lineWidth=2;
+      ctx.setLineDash([5,4]);
+      ctx.beginPath(); ctx.moveTo(bx,hr.y+2); ctx.lineTo(bx,hr.y+hr.h-2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle=rgba(hue,90,72,0.9);
+      ctx.beginPath(); ctx.moveTo(bx-1,hr.y+hr.h/2-5); ctx.lineTo(bx-8,hr.y+hr.h/2); ctx.lineTo(bx-1,hr.y+hr.h/2+5); ctx.fill();
+    }
+  }
+
+  // 全局扫描竖条（16 拍的参照系；行长度不是 16 的那行，指针会明显跟它错开）
+  if(cur){
+    const gp=(cur.g+frac)%NCOL, vc=gp-page*cols;
+    if(vc>=-1&&vc<=cols){
+      const x=gx+headW+gap+vc*(cw+gap)-gap/2;
+      const bw=cw+gap, gh2=NROW*ch+(NROW-1)*gap;
+      const lg=ctx.createLinearGradient(x,0,x+bw,0);
+      lg.addColorStop(0,'rgba(180,220,255,0)'); lg.addColorStop(0.5,'rgba(180,220,255,0.16)');
+      lg.addColorStop(1,'rgba(180,220,255,0)');
+      ctx.fillStyle=lg; ctx.fillRect(x,gy-6,bw,gh2+12);
+      ctx.fillStyle='rgba(200,235,255,0.5)'; ctx.fillRect(x+bw/2-0.75,gy-6,1.5,gh2+12);
+    }
+  }
+
+  // 涟漪
+  for(let i=ripples.length-1;i>=0;i--){
+    const p=ripples[i]; p.life-=dt*2.6;
+    if(p.life<=0){ ripples.splice(i,1); continue; }
+    const k=1-p.life;
+    ctx.strokeStyle=rgba(p.hue,95,72,p.life*0.75); ctx.lineWidth=2.2*p.life+0.4;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r0+k*Math.max(cw,ch)*1.1,0,Math.PI*2); ctx.stroke();
+  }
+
+  // 翻页点
+  if(cols<NCOL){
+    const npg=Math.ceil(NCOL/cols), y=gy+NROW*(ch+gap)+14, cx=gx+headW+gap+(cols*(cw+gap)-gap)/2;
+    for(let i=0;i<npg;i++){
+      ctx.beginPath(); ctx.arc(cx+(i-(npg-1)/2)*22,y,i===page?5:4,0,Math.PI*2);
+      ctx.fillStyle=i===page?'rgba(180,220,255,0.9)':'rgba(180,220,255,0.28)'; ctx.fill();
+    }
+    ctx.fillStyle='rgba(180,220,255,0.35)'; ctx.font='700 10px -apple-system,sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('beats '+(page*cols+1)+'-'+Math.min(NCOL,(page+1)*cols)+' · tap dots to flip',cx,y+20);
+  }
+}
+function frame(now){
+  const dt=Math.min((now-tPrev)/1000,0.05); tPrev=now;
+  readClock(); draw(dt); requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ---------- 手动步进钩子（车道只有 1~4fps，验收用） ----------
+window.__tick=function(n){
+  n=n|0||1;
+  for(let i=0;i<n;i++) fireStep(null);
+  while(queue.length>1)queue.shift();
+  if(queue[0]){queue[0].done=true;spawnRipples(queue[0]);}
+  readClock(); draw(0.016);
+  return window.__state();
+};
+window.__state=function(){
+  return { g:gstep, running, bpm:BPMS[bpmIdx], cols, page,
+    rows:rows.map(r=>({len:r.len,off:r.off,p:r.p,on:r.cells.filter(v=>v===1).length,prob:r.cells.filter(v=>v===2).length})),
+    audio: actx?actx.state:'none', ripples:ripples.length, queue:queue.length,
+    lit:rows.reduce((a,r)=>a+r.cells.filter(v=>v>0).length,0),
+    nan: rows.some(r=>!isFinite(r.len)||!isFinite(r.p)) || !isFinite(gx) || !isFinite(cw) };
+};
+})();
+</script>
+</body>
+</html>

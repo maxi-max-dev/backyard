@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Murmuration</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#e8b57a;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#3a2a2e;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0;touch-action:none}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none;text-shadow:0 1px 6px rgba(255,235,210,.6)}
+  .title b{font-size:19px;font-weight:800;letter-spacing:3px}
+  .title span{display:block;font-size:12px;opacity:.6;margin-top:3px;font-weight:600}
+  .dock{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;pointer-events:none;
+    display:flex;flex-direction:column;align-items:center;gap:7px;width:96vw;max-width:460px}
+  .hint{font-size:13px;font-weight:600;opacity:.62;pointer-events:none;transition:opacity .6s;
+    white-space:nowrap;text-shadow:0 1px 6px rgba(255,235,210,.7)}
+  .bar{pointer-events:auto;width:100%;display:flex;flex-direction:column;align-items:stretch;gap:8px;
+    background:rgba(255,240,222,.42);border:1px solid rgba(120,80,60,.22);
+    padding:9px 13px;border-radius:16px;backdrop-filter:blur(10px)}
+  .row{display:flex;align-items:center;gap:9px;width:100%}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#3a2a2e;
+    border:1px solid rgba(120,80,60,.25);background:rgba(255,255,255,.35);
+    padding:8px 13px;border-radius:11px;cursor:pointer;white-space:nowrap}
+  /* both modes are always on screen; the lit one is the mode you're in, so the
+     other one reads as "tap me to switch" instead of leaving you to guess */
+  .bar button.on{background:linear-gradient(90deg,#ffc98a,#ffe3ab);border-color:transparent}
+  .bar button:not(.on){opacity:.62}
+  .seg{display:flex;gap:7px;min-width:0}
+  #snd{padding:8px 10px;margin-left:auto}
+  #snd.on{background:rgba(120,80,60,.22)}
+  .lab{font-size:11px;font-weight:700;opacity:.55;white-space:nowrap}
+  input[type=range]{-webkit-appearance:none;appearance:none;flex:1 1 auto;width:100%;min-width:0;
+    height:4px;border-radius:3px;background:rgba(120,80,60,.3);outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;border-radius:50%;
+    background:#5a3f34;border:2px solid rgba(255,245,230,.9);cursor:pointer}
+  input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:#5a3f34;
+    border:2px solid rgba(255,245,230,.9);cursor:pointer}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>Murmuration</b><span>press and hold anywhere</span></div>
+<div class="dock">
+  <div class="hint" id="hint">🕊️ hold it down, watch them scatter and come back</div>
+  <div class="bar">
+    <div class="row">
+      <div class="seg">
+        <button id="mScare" class="on">🦅 scare them</button>
+        <button id="mFeed">🌾 feed them</button>
+      </div>
+      <button id="snd">🔈</button>
+    </div>
+    <div class="row">
+      <span class="lab">a few sparrows</span>
+      <input id="cnt" type="range" min="150" max="2000" step="10" value="1200">
+      <span class="lab">a whole sky of starlings</span>
+    </div>
+  </div>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const MAX=2000;
+// ---- state: zero-allocation Float32Arrays ----
+const px=new Float32Array(MAX), py=new Float32Array(MAX),
+      vx=new Float32Array(MAX), vy=new Float32Array(MAX),
+      sc=new Float32Array(MAX),   // 0.6..1.2 depth scale
+      wp=new Float32Array(MAX),   // wing phase
+      hd=new Float32Array(MAX);   // previous heading
+let N=0, W=0,H=0,dpr=1, sky=null, skyc=null;
+
+// ---- tunables (the life-or-death line) ----
+const R=44, R2=R*R, SEPR=17, KMAX=7;   // perception / separation / topological cap
+const SEP=560, ALI=3.6, COH=1.95;      // three rules
+const nd=new Float32Array(KMAX), ni=new Int32Array(KMAX); // k-nearest scratch
+const MAXF=760, SPD=118, SPDMIN=64;    // force cap, cruise speed
+const PR=190;                          // pointer radius
+
+function resize(){
+  const oW=W,oH=H;
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  if(oW>0&&oH>0){ const rx=W/oW, ry=H/oH;          // remap: flock shape preserved
+    for(let i=0;i<N;i++){ px[i]*=rx; py[i]*=ry; } }
+  makeSky(); buildGridDims();
+}
+function makeSky(){
+  if(!sky){ sky=document.createElement('canvas'); skyc=sky.getContext('2d'); }
+  sky.width=Math.max(1,W); sky.height=Math.max(1,H);
+  const g=skyc.createLinearGradient(0,0,0,H);
+  g.addColorStop(0.00,'#f0a462');  // warm orange
+  g.addColorStop(0.28,'#f3bd88');
+  g.addColorStop(0.55,'#eed3ae');
+  g.addColorStop(0.80,'#cfd8c8');
+  g.addColorStop(1.00,'#aac9c6');  // pale teal
+  skyc.fillStyle=g; skyc.fillRect(0,0,W,H);
+  // faint haze bands so the sky isn't a flat ramp
+  for(let i=0;i<7;i++){ const y=H*(0.12+i*0.12), h=H*0.05;
+    skyc.fillStyle='rgba(255,250,240,'+(0.05-i*0.005)+')'; skyc.fillRect(0,y,W,h); }
+}
+
+// ---- uniform spatial hash, cell = perception radius ----
+let cols=1,rows=1,cells=1;
+let cellCount=new Int32Array(1), cellStart=new Int32Array(2), items=new Int32Array(MAX);
+function buildGridDims(){
+  cols=Math.max(1,Math.ceil(W/R)); rows=Math.max(1,Math.ceil(H/R)); cells=cols*rows;
+  if(cellCount.length<cells){ cellCount=new Int32Array(cells); cellStart=new Int32Array(cells+1); }
+}
+function buildGrid(){
+  cellCount.fill(0,0,cells);
+  for(let i=0;i<N;i++){
+    let cx=px[i]/R|0, cy=py[i]/R|0;
+    if(cx<0)cx=0; else if(cx>=cols)cx=cols-1;
+    if(cy<0)cy=0; else if(cy>=rows)cy=rows-1;
+    cellCount[cy*cols+cx]++;
+  }
+  let s=0; for(let c=0;c<cells;c++){ cellStart[c]=s; s+=cellCount[c]; } cellStart[cells]=s;
+  cellCount.fill(0,0,cells);
+  for(let i=0;i<N;i++){
+    let cx=px[i]/R|0, cy=py[i]/R|0;
+    if(cx<0)cx=0; else if(cx>=cols)cx=cols-1;
+    if(cy<0)cy=0; else if(cy>=rows)cy=rows-1;
+    const c=cy*cols+cx; items[cellStart[c]+cellCount[c]++]=i;
+  }
+}
+
+function spawn(i,seedFrom){
+  if(seedFrom>=0){ const j=seedFrom;
+    px[i]=px[j]+(Math.random()-.5)*40; py[i]=py[j]+(Math.random()-.5)*40;
+    vx[i]=vx[j]; vy[i]=vy[j];
+  }else{
+    // spawn near the flock's natural spread, so the opening isn't a big bang
+    const a=Math.random()*6.283, r=Math.sqrt(Math.random())*Math.min(W,H)*0.44;
+    px[i]=W/2+Math.cos(a)*r*1.45; py[i]=H*0.45+Math.sin(a)*r*0.85;
+    const d=Math.random()*6.283; vx[i]=Math.cos(d)*SPD; vy[i]=Math.sin(d)*SPD;
+  }
+  sc[i]=0.6+Math.random()*0.6; wp[i]=Math.random()*6.283; hd[i]=Math.atan2(vy[i],vx[i]);
+}
+function setCount(n){
+  n=Math.max(20,Math.min(MAX,n|0));
+  if(n>N){ for(let i=N;i<n;i++) spawn(i, N>0?(Math.random()*N|0):-1); }
+  N=n;
+}
+
+// ---- pointer ----
+const ptr={x:-1e4,y:-1e4,on:false};
+let FEED=false, demoT=0, demoOn=true, avgSpd=SPD;
+// flock centre-of-mass velocity (previous frame) — used to damp the home spring
+let mvx=0, mvy=0;
+const HDMP=0.42;   // ~critical damping for the home spring; kills the slow slosh
+
+function step(dt){
+  if(dt>1/30) dt=1/30;
+  buildGrid();
+  // opening demo: a soft pull, then a soft push — hints that it reacts to touch
+  let ex=ptr.x, ey=ptr.y, eon=ptr.on, efeed=FEED, egain=1;
+  if(demoOn){
+    demoT+=dt;
+    if(demoT>1.0&&demoT<2.4){ eon=true; efeed=true; ex=W/2; ey=H*0.45;
+      egain=0.85*Math.sin((demoT-1.0)/1.4*Math.PI); }
+    else if(demoT>=2.5&&demoT<3.5){ eon=true; efeed=false; ex=W/2; ey=H*0.45;
+      egain=0.5*Math.sin((demoT-2.5)/1.0*Math.PI); }
+    else if(demoT>=3.5){ demoOn=false; }
+    if(ptr.on){ demoOn=false; eon=ptr.on; efeed=FEED; ex=ptr.x; ey=ptr.y; egain=1; }
+  }
+  const cyC=H*(W<560?0.45:0.47), cxC=W/2;
+  // soft-wall margins: the bottom one clears the control dock (~130px tall) so the
+  // flock never parks behind the UI on tall portrait screens
+  const mgX=Math.min(W*0.20,110), mgT=Math.min(H*0.16,86), mgB=Math.min(H*0.34,150);
+  let spSum=0, mvxS=0, mvyS=0;
+
+  for(let i=0;i<N;i++){
+    const x=px[i], y=py[i], ivx=vx[i], ivy=vy[i];
+    let cx=x/R|0, cy=y/R|0;
+    if(cx<0)cx=0; else if(cx>=cols)cx=cols-1;
+    if(cy<0)cy=0; else if(cy>=rows)cy=rows-1;
+    // gather the KMAX *nearest* neighbours in the 9 surrounding cells
+    // (topological, like real starlings — and it kills the scan-order bias
+    //  that makes "first 7 found" collapse the flock into knots)
+    let k=0, worst=1e30;
+    for(let oy=-1;oy<=1;oy++){
+      const ny=cy+oy; if(ny<0||ny>=rows) continue;
+      for(let ox=-1;ox<=1;ox++){
+        const nx=cx+ox; if(nx<0||nx>=cols) continue;
+        const c=ny*cols+nx, a0=cellStart[c], a1=cellStart[c+1];
+        for(let a=a0;a<a1;a++){
+          const j=items[a]; if(j===i) continue;
+          const dx=px[j]-x, dy=py[j]-y, d2=dx*dx+dy*dy;
+          if(d2>=R2||d2<=0) continue;
+          if(k>=KMAX && d2>=worst) continue;
+          let p=(k<KMAX)?k++:KMAX-1;
+          while(p>0&&nd[p-1]>d2){ nd[p]=nd[p-1]; ni[p]=ni[p-1]; p--; }
+          nd[p]=d2; ni[p]=j; worst=nd[k-1];
+        }
+      }
+    }
+    let sx=0,sy=0,ax=0,ay=0,gx=0,gy=0;
+    for(let q=0;q<k;q++){
+      const j=ni[q];
+      ax+=vx[j]; ay+=vy[j]; gx+=px[j]; gy+=py[j];
+      if(nd[q]<SEPR*SEPR){ const d=Math.sqrt(nd[q])||1e-3;
+        const w=(SEPR-d)/SEPR; sx-=(px[j]-x)/d*w; sy-=(py[j]-y)/d*w; }
+    }
+    let fx=0, fy=0;
+    if(k>0){
+      fx+=((ax/k)-ivx)*ALI;      fy+=((ay/k)-ivy)*ALI;
+      fx+=((gx/k)-x)*COH;        fy+=((gy/k)-y)*COH;
+      fx+=sx*SEP;                fy+=sy*SEP;
+    }
+    // clamp flocking force
+    const fm=Math.sqrt(fx*fx+fy*fy);
+    if(fm>MAXF){ const s=MAXF/fm; fx*=s; fy*=s; }
+    // very weak pull home (no wrapping — wrapping tears the flock apart).
+    // The -mv term damps only the flock's *common* drift: once the birds condense
+    // into one coherent ball this spring is otherwise undamped and the ball slowly
+    // sloshes top<->bottom, parking on the title or the dock with half the sky empty.
+    // Individual swirling (velocity minus the flock mean) is untouched.
+    fx+=(cxC-x)*0.11-mvx*HDMP; fy+=(cyC-y)*0.14-mvy*HDMP;
+    // soft walls
+    if(x<mgX) fx+=(mgX-x)*4.0; else if(x>W-mgX) fx-=(x-(W-mgX))*4.0;
+    if(y<mgT) fy+=(mgT-y)*4.0; else if(y>H-mgB) fy-=(y-(H-mgB))*4.0;
+
+    let burst=0;
+    if(eon){
+      const dx=x-ex, dy=y-ey; let d=Math.sqrt(dx*dx+dy*dy);
+      if(d<PR){
+        if(d<1e-3) d=1e-3;
+        const ux=dx/d, uy=dy/d, t=1-d/PR;
+        if(efeed){
+          const m=560*t*egain;                       // pull in + swirl -> vortex
+          fx+= -ux*m + (-uy)*m*0.95;
+          fy+= -uy*m + ( ux)*m*0.95;
+          if(d<34){ fx+=ux*m*1.5; fy+=uy*m*1.5; }    // don't collapse to a point
+        }else{
+          const m=1500*t*t*egain;                    // smooth falloff, hard cap
+          fx+=ux*m + (-uy)*m*0.28;                   // slight tangent -> splits in two halves
+          fy+=uy*m + ( ux)*m*0.28;
+          burst=t*egain;
+        }
+      }
+    }
+    let nvx=ivx+fx*dt, nvy=ivy+fy*dt;
+    let sp=Math.sqrt(nvx*nvx+nvy*nvy);
+    if(!(sp>0)||!isFinite(sp)){ nvx=SPD; nvy=0; sp=SPD; }
+    const cap=SPD*(1+1.15*burst);
+    if(sp>cap){ nvx*=cap/sp; nvy*=cap/sp; sp=cap; }
+    else if(sp<SPDMIN){ nvx*=SPDMIN/sp; nvy*=SPDMIN/sp; sp=SPDMIN; }
+    vx[i]=nvx; vy[i]=nvy; mvxS+=nvx; mvyS+=nvy;
+    let nx2=x+nvx*dt, ny2=y+nvy*dt;
+    if(nx2<-40)nx2=-40; else if(nx2>W+40)nx2=W+40;
+    if(ny2<-40)ny2=-40; else if(ny2>H+40)ny2=H+40;
+    px[i]=nx2; py[i]=ny2;
+    spSum+=sp;
+    // wings: beat rate rises with turn rate
+    const h=Math.atan2(nvy,nvx);
+    let dh=h-hd[i]; if(dh>Math.PI)dh-=6.283; else if(dh<-Math.PI)dh+=6.283;
+    hd[i]=h;
+    wp[i]+=dt*(7.5+Math.min(60,Math.abs(dh)/Math.max(dt,1e-4)*4.5));
+    if(wp[i]>1e6) wp[i]=0;
+  }
+  avgSpd=N?spSum/N:0;
+  mvx=N?mvxS/N:0; mvy=N?mvyS/N:0;
+  if(gain) gain.gain.value=Math.max(0,Math.min(0.06,(avgSpd-SPDMIN)/260*0.06));
+}
+
+// ---- render: 4 depth buckets, low-alpha chevrons -> the flock gets its own shading ----
+const BA=[0.30,0.38,0.46,0.55], BW=[0.9,1.1,1.35,1.6];
+function draw(){
+  ctx.drawImage(sky,0,0,W,H);
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  for(let b=0;b<4;b++){
+    ctx.strokeStyle='rgba(28,22,34,'+BA[b]+')';
+    ctx.lineWidth=BW[b];
+    ctx.beginPath();
+    const lo=0.6+b*0.15, hi=lo+0.15;
+    for(let i=0;i<N;i++){
+      const s=sc[i]; if(s<lo||(s>=hi&&b<3)) continue;
+      const vX=vx[i], vY=vy[i], sp=Math.sqrt(vX*vX+vY*vY)||1;
+      const dx=vX/sp, dy=vY/sp;
+      const L=4.6*s;
+      const hx=px[i]+dx*L*0.55, hy=py[i]+dy*L*0.55;
+      const spread=0.50+0.52*Math.sin(wp[i]);       // wing open/close
+      const a=Math.atan2(dy,dx)+Math.PI;
+      const a1=a-spread, a2=a+spread;
+      ctx.moveTo(hx+Math.cos(a1)*L, hy+Math.sin(a1)*L);
+      ctx.lineTo(hx,hy);
+      ctx.lineTo(hx+Math.cos(a2)*L, hy+Math.sin(a2)*L);
+    }
+    ctx.stroke();
+  }
+}
+
+// ---- audio: white noise -> lowpass, volume follows flock speed ----
+let actx=null,gain=null;
+function toggleSound(){
+  const btn=document.getElementById('snd');
+  if(actx){ actx.close(); actx=null; gain=null; btn.classList.remove('on'); btn.textContent='🔈'; return; }
+  try{
+    actx=new (window.AudioContext||window.webkitAudioContext)();
+    const len=actx.sampleRate*2, buf=actx.createBuffer(1,len,actx.sampleRate), d=buf.getChannelData(0);
+    let last=0;
+    for(let i=0;i<len;i++){ const wn=Math.random()*2-1; last=(last*0.94+wn*0.06); d[i]=last*3; }
+    const src=actx.createBufferSource(); src.buffer=buf; src.loop=true;
+    const lp=actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=420; lp.Q.value=0.6;
+    gain=actx.createGain(); gain.gain.value=0.01;
+    src.connect(lp); lp.connect(gain); gain.connect(actx.destination); src.start();
+    btn.classList.add('on'); btn.textContent='🔊';
+  }catch(e){ actx=null; gain=null; }
+}
+
+// ---- boot ----
+resize(); window.addEventListener('resize',resize);
+const startN = (window.innerWidth<700||navigator.maxTouchPoints>1) ? 500 : 1200;
+setCount(startN);
+document.getElementById('cnt').value=startN;
+// low-end fallback: watch real frame intervals (JS time alone misses slow GPUs),
+// and if the first ~50 frames can't hold ~45fps, drop to 500 birds.
+let probeN=0, probeSum=0, probed=false, userSetCount=false;
+function probe(raw){
+  if(probed||userSetCount) return;
+  if(raw>0.1) return;                // ignore stalls (tab switch, first paint, GC hitch)
+  probeN++; if(probeN<=8) return;    // skip warm-up frames
+  probeSum+=raw;
+  if(probeN>=50){ probed=true;
+    if(probeSum/(probeN-8)>1/45 && N>500){ setCount(500); document.getElementById('cnt').value=500; } }
+}
+let last=performance.now();
+function frame(now){
+  const raw=(now-last)/1000, dt=Math.min(raw,0.05); last=now;
+  step(dt); draw(); probe(raw);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+let hintGone=false;
+function hideHint(){ if(hintGone)return; hintGone=true; document.getElementById('hint').style.opacity=0; }
+// only the first finger down steers the flock — a thumb resting on the bezel
+// used to yank the whole vortex into the corner mid-gesture
+let pid=null;
+cv.addEventListener('pointerdown',e=>{ e.preventDefault(); if(pid!==null) return;
+  pid=e.pointerId;
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  ptr.x=e.clientX; ptr.y=e.clientY; ptr.on=true; demoOn=false; hideHint(); });
+cv.addEventListener('pointermove',e=>{ if(e.pointerId!==pid) return;
+  ptr.x=e.clientX; ptr.y=e.clientY; });
+const release=e=>{ if(e.pointerId!==pid) return; pid=null; ptr.on=false; };
+cv.addEventListener('pointerup',release);
+cv.addEventListener('pointercancel',release);
+
+const bScare=document.getElementById('mScare'), bFeed=document.getElementById('mFeed');
+function setMode(f){ FEED=!!f;
+  bScare.classList.toggle('on',!FEED); bFeed.classList.toggle('on',FEED);
+  document.getElementById('hint').textContent=FEED
+    ? '🌾 hold it down, watch them swirl into a vortex'
+    : '🕊️ hold it down, watch them scatter and come back'; }
+bScare.onclick=()=>setMode(false);
+bFeed.onclick=()=>setMode(true);
+document.getElementById('snd').onclick=toggleSound;
+document.getElementById('cnt').oninput=e=>{ userSetCount=true; setCount(+e.target.value); };
+
+// manual step hook (headless verification: this lane runs at 1-4fps)
+window.__tick=(n,dt)=>{ for(let i=0;i<(n||1);i++) step(dt||1/60); draw(); };
+window.__state=()=>{ let bad=0,inside=0,cx=0,cy=0,sp=0;
+  for(let i=0;i<N;i++){ if(!isFinite(px[i])||!isFinite(py[i])||!isFinite(vx[i])||!isFinite(vy[i]))bad++;
+    if(px[i]>=-45&&px[i]<=W+45&&py[i]>=-45&&py[i]<=H+45)inside++;
+    cx+=px[i];cy+=py[i];sp+=Math.hypot(vx[i],vy[i]); }
+  return {N,W,H,bad,inside,cx:cx/N,cy:cy/N,avgSpd:sp/N,demoOn,FEED}; };
+window.__near=(x,y,r)=>{ let c=0; for(let i=0;i<N;i++){ const dx=px[i]-x,dy=py[i]-y;
+  if(dx*dx+dy*dy<r*r)c++; } return c; };
+window.__ptr=(x,y,on)=>{ ptr.x=x;ptr.y=y;ptr.on=!!on; if(on)demoOn=false; };
+window.__mode=f=>{setMode(f);};
+window.__setCount=setCount;
+})();
+</script>
+</body>
+</html>
