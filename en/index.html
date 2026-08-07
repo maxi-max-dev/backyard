@@ -102,7 +102,7 @@ footer a:hover{color:var(--ink)}
   <div class="eyebrow">Max · Backyard</div>
   <h1>Backyard</h1>
   <p class="sub">
-    The stuff that didn't make it into the portfolio. <b>Three bigger things</b>, and <b>sixty little toys</b>.<br>
+    The stuff that didn't make it into the portfolio. <b>Four bigger things</b>, and <b>sixty little toys</b>.<br>
     Every one is a single file, no dependencies, just open and play. Works on your phone too.
   </p>
   <div class="headlinks">
@@ -113,7 +113,7 @@ footer a:hover{color:var(--ink)}
 
 <div class="secthead">
   <h2>The bigger ones</h2>
-  <span class="note">three, each worth a while</span>
+  <span class="note">four, each worth a while</span>
 </div>
 <div class="bigs" id="bigs"></div>
 
@@ -134,15 +134,18 @@ footer a:hover{color:var(--ink)}
 
 <script>
 const BIGS=[
-  {em:"🏛",en:"Museum of Feelings",zh:"感觉博物馆",glow:"#7a6cff",
-   url:"https://maxi-max-dev.github.io/museum-of-feelings/",
-   desc:"Thirty-eight rooms, each one lets you play out an idea you'd normally only hear explained: cause a traffic jam with your own hands, weave yourself a filter bubble, learn why the line you pick is always the slowest. Grouped by senses, chance, systems, time, and decade-memories."},
-  {em:"🍽",en:"Tonight's Feast",zh:"今夜设宴",glow:"#ff6ad0",
-   url:"https://maxi-max-dev.github.io/hannibal-menu/",
-   desc:"“Tell me what you eat, and I'll tell you who you are.” A box of flip cards. Flip through, order tonight's table, and it prints you a proper menu. Or just let the chef decide."},
-  {em:"🪞",en:"Parallel Lives",zh:"另一个你",glow:"#4ad9ff",
-   url:"https://maxi-max-dev.github.io/other-you/",
-   desc:"If you'd chosen differently back then, where would you be now. It plays it out one day at a time. It isn't selling predictions, the sample size is one person, you."},
+  {em:"🖥",en:"Interface Archaeology",zh:"界面考古馆",glow:"#7a6cff",cnonly:false,
+   url:"https://maxi-max-dev.github.io/studio/projects/interface-archaeology/en/",
+   desc:"A museum of human-computer interaction history: walk from the command line to graphical interfaces to now."},
+  {em:"🛰",en:"Max Station",zh:"Max Station",glow:"#4ad9ff",cnonly:true,
+   url:"https://maxi-max-dev.github.io/max-station/",
+   desc:"The workbench I use every day: kanban, calendar, notes and a pomodoro on one page, plus a few hidden mini games."},
+  {em:"🎙",en:"IELTS Speaking Coach",zh:"雅思口语教练",glow:"#ffd76a",cnonly:true,
+   url:"https://maxi-max-dev.github.io/ielts-speaking-coach/",
+   desc:"An AI examiner: asks a question, records your answer, gives sentence-by-sentence feedback and a band estimate, then a model answer. Made when I had no one to practice with."},
+  {em:"🌸",en:"Music Garden",zh:"音乐花园",glow:"#ff6ad0",cnonly:true,
+   url:"https://maxi-max-dev.github.io/tme-hackathon/garden.html",
+   desc:"Play a song and it grows a flower of its own; every song you have played stays in the garden. Second piece from the same music hackathon."},
 ];
 
 const CATS=["All","Physics","Ambient","Games","Drawing","Luck","Music"];
@@ -218,7 +221,7 @@ $('#bigs').innerHTML=BIGS.map(b=>`
     <span class="em">${b.em}</span>
     <h3>${b.en}</h3>
     <div class="zh">${b.zh}</div>
-    <span class="cnonly">Chinese only</span>
+    ${b.cnonly?'<span class="cnonly">Chinese only</span>':''}
     <p>${b.desc}</p>
     <div class="go">take a look ↗</div>
   </a>`).join('');
