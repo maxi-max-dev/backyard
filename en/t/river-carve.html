@@ -36,8 +36,19 @@
   .bar button svg{flex:0 0 auto;display:block}
   .bar button .fill{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(210,110,80,.45);pointer-events:none}
 </style>
+<link rel="icon" href="data:,">
+<style>
+#zhlink{position:fixed;top:64px;right:14px;z-index:999;
+  font:700 12px/1 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;
+  color:#fff;background:rgba(18,18,24,.55);border:1px solid rgba(255,255,255,.24);
+  padding:6px 10px;border-radius:99px;text-decoration:none;letter-spacing:.06em;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  opacity:.5;transition:opacity .2s}
+#zhlink:hover,#zhlink:focus{opacity:1}
+</style>
 </head>
 <body>
+<a id="zhlink" href="../../t/river-carve.html">中文</a>
 <canvas id="cv"></canvas>
 <div class="title"><b>river</b><span>drag your finger, the water changes course</span></div>
 <div class="meter">eroded <b id="ero">0.0</b> <i>mm</i>

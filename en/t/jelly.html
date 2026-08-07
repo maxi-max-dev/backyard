@@ -41,8 +41,19 @@
     .hint{bottom:62px}
   }
 </style>
+<link rel="icon" href="data:,">
+<style>
+#zhlink{position:fixed;top:46px;right:14px;z-index:999;
+  font:700 12px/1 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;
+  color:#fff;background:rgba(18,18,24,.55);border:1px solid rgba(255,255,255,.24);
+  padding:6px 10px;border-radius:99px;text-decoration:none;letter-spacing:.06em;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  opacity:.5;transition:opacity .2s}
+#zhlink:hover,#zhlink:focus{opacity:1}
+</style>
 </head>
 <body>
+<a id="zhlink" href="../../t/jelly.html">中文</a>
 <canvas id="cv"></canvas>
 <div class="title"><b>Jelly</b><span>poke it · drag and fling · tap blank for a new blob</span></div>
 <div class="count" id="count"></div>

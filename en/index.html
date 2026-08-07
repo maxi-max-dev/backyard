@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Backyard · Max's toy shed</title>
+<link rel="icon" href="data:,">
 <meta name="description" content="The stuff Max made that didn't make it into the portfolio: three bigger things and sixty little toys. Every one just opens and plays.">
 <style>
 *{box-sizing:border-box}
@@ -55,6 +56,9 @@ h1{font-size:clamp(40px,8.5vw,78px);margin:.12em 0 .16em;font-weight:900;letter-
 .big .em{font-size:32px;position:relative}
 .big h3{margin:12px 0 3px;font-size:19px;font-weight:800;position:relative}
 .big .zh{color:var(--dim);font-size:12px;letter-spacing:.04em;font-weight:600;position:relative}
+.big .cnonly{display:inline-block;position:relative;margin:11px 0 0;padding:3px 9px;border-radius:6px;
+  font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--mut);background:rgba(255,255,255,.05);border:1px solid var(--line)}
 .big p{color:var(--mut);font-size:13.5px;line-height:1.75;margin:12px 0 0;position:relative;flex:1}
 .big .go{margin-top:16px;font-size:13px;font-weight:700;color:var(--ink);position:relative;opacity:.85}
 
@@ -133,10 +137,10 @@ const BIGS=[
   {em:"🏛",en:"Museum of Feelings",zh:"感觉博物馆",glow:"#7a6cff",
    url:"https://maxi-max-dev.github.io/museum-of-feelings/",
    desc:"Thirty-eight rooms, each one lets you play out an idea you'd normally only hear explained: cause a traffic jam with your own hands, weave yourself a filter bubble, learn why the line you pick is always the slowest. Grouped by senses, chance, systems, time, and decade-memories."},
-  {em:"🍽",en:"Le Festin",zh:"今夜设宴",glow:"#ff6ad0",
+  {em:"🍽",en:"Tonight's Feast",zh:"今夜设宴",glow:"#ff6ad0",
    url:"https://maxi-max-dev.github.io/hannibal-menu/",
    desc:"“Tell me what you eat, and I'll tell you who you are.” A box of flip cards. Flip through, order tonight's table, and it prints you a proper menu. Or just let the chef decide."},
-  {em:"🪞",en:"Other You",zh:"另一个你",glow:"#4ad9ff",
+  {em:"🪞",en:"Parallel Lives",zh:"另一个你",glow:"#4ad9ff",
    url:"https://maxi-max-dev.github.io/other-you/",
    desc:"If you'd chosen differently back then, where would you be now. It plays it out one day at a time. It isn't selling predictions, the sample size is one person, you."},
 ];
@@ -214,6 +218,7 @@ $('#bigs').innerHTML=BIGS.map(b=>`
     <span class="em">${b.em}</span>
     <h3>${b.en}</h3>
     <div class="zh">${b.zh}</div>
+    <span class="cnonly">Chinese only</span>
     <p>${b.desc}</p>
     <div class="go">take a look ↗</div>
   </a>`).join('');

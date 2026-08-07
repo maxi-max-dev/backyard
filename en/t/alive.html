@@ -31,8 +31,19 @@
     box-shadow:0 2px 0 rgba(180,90,20,.32);letter-spacing:1px}
   @media (max-width:400px){ .bar button{font-size:12px;padding:10px 2px} .hint{font-size:12px} }
 </style>
+<link rel="icon" href="data:,">
+<style>
+#zhlink{position:fixed;top:46px;right:14px;z-index:999;
+  font:700 12px/1 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;
+  color:#fff;background:rgba(18,18,24,.55);border:1px solid rgba(255,255,255,.24);
+  padding:6px 10px;border-radius:99px;text-decoration:none;letter-spacing:.06em;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  opacity:.5;transition:opacity .2s}
+#zhlink:hover,#zhlink:focus{opacity:1}
+</style>
 </head>
 <body>
+<a id="zhlink" href="../../t/alive.html">中文</a>
 <canvas id="cv"></canvas>
 <div class="title"><b>It's Alive</b><span id="sub">scribble any old thing, then hit the button below</span></div>
 <div class="count" id="count"></div>
