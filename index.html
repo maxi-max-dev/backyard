@@ -91,6 +91,8 @@ footer a:hover{color:var(--ink)}
   .grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
   .toy p{display:none}
 }
+
+.archive-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:16px}.archive-card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:24px}.archive-card h3{font-size:18px;margin:0 0 12px}.archive-card p,.archive-note{color:var(--mut);font-size:14px;line-height:1.8}.archive-card a{display:inline-block;margin-top:12px;color:inherit}.archive-note{margin:-8px 0 22px}
 </style>
 </head>
 <body>
@@ -100,8 +102,8 @@ footer a:hover{color:var(--ink)}
   <div class="eyebrow">Max · Backyard</div>
   <h1>后院</h1>
   <p class="sub">
-    这里放的是没进作品集的东西。<b>四件玩得比较大的</b>，和<b>六十个小玩具</b>。<br>
-    都是单文件、零依赖、点开就能玩，手机也行。
+    这里收着早期项目、自动化实验和小玩具。<br>
+    有些可以点开玩，有些记录了一段探索。
   </p>
   <div class="headlinks">
     <a class="toportfolio" href="en/">EN</a>
@@ -109,9 +111,23 @@ footer a:hover{color:var(--ink)}
   </div>
 </header>
 
+<section class="archive-section" id="earlier-projects">
+<div class="secthead"><h2>早期项目与实验</h2></div>
+<p class="archive-note">从作品集移来的旧项目，留在这里回看。</p>
+<div class="archive-grid">
+<article class="archive-card"><h3>造物台</h3><p>把 Agent 在定时任务中做出的小游戏、页面和工具收在一起。这里记录了一场持续的实验：给它们空间去尝试，也把结果留下来，让人能点开看。</p><a href="https://maxi-max-dev.github.io/studio/" target="_blank" rel="noopener">打开项目 ↗</a></article>
+<article class="archive-card"><h3>心跳墙</h3><p>把 Agent 的工作状态做成像素风看板：谁在忙、谁在休息、任务有什么进展。探索如何让后台发生的事，变成一眼能看懂的画面。</p><a href="https://maxi-max-dev.github.io/heartbeat-wall/" target="_blank" rel="noopener">打开项目 ↗</a></article>
+<article class="archive-card"><h3>多 Agent 系统 OPENCLAW</h3><p>基于开源框架 OpenClaw 配置不同角色、工作区与定时任务，把结果汇总到手机上。我做的是工作流搭建、任务衔接与故障处理，让分散的执行过程有记录、能追踪。</p></article>
+<article class="archive-card"><h3>每日预测 MIROFISH</h3><p>围绕开源预测引擎 MiroFish 搭建新闻整理、趋势预测与结果回看的流程。把预测留下来，再与后续发生的事对照，探索怎样让判断可以被检验。</p></article>
+<article class="archive-card"><h3>市场分析 DIGITAL ORACLE</h3><p>参考 B 站 Komako 的开源思路，编写换汇分析脚本，并尝试让 Agent 在 ASX 模拟炒股比赛中看盘、下单。项目记录了一个赛季的模拟交易过程，用来复盘自动化决策的局限。</p></article>
+<article class="archive-card"><h3>打包教练</h3><p>告诉它你的箱子和要带的东西，它算出装得下的顺序，再一步步教你装。406 组自动化场景全过。</p><a href="https://maxi-max-dev.github.io/pack-coach/" target="_blank" rel="noopener">打开项目 ↗</a></article>
+</div>
+</section>
+
+
 <div class="secthead">
   <h2>玩得比较大的</h2>
-  <span class="note">四件，都能逛挺久</span>
+  <span class="note">一些可以慢慢逛的作品</span>
 </div>
 <div class="bigs" id="bigs"></div>
 
@@ -123,7 +139,7 @@ footer a:hover{color:var(--ink)}
 <div class="grid" id="grid"></div>
 
 <footer>
-  全部单文件 HTML，零依赖，离线可跑。<br>
+  小玩具采用单文件 HTML，点开即可体验。<br>
   <a href="https://maxi-max-dev.github.io/">作品集</a> ·
   <a href="https://github.com/maxi-max-dev">GitHub</a>
 </footer>

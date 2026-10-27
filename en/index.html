@@ -93,6 +93,8 @@ footer a:hover{color:var(--ink)}
   .grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
   .toy p{display:none}
 }
+
+.archive-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:16px}.archive-card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:24px}.archive-card h3{font-size:18px;margin:0 0 12px}.archive-card p,.archive-note{color:var(--mut);font-size:14px;line-height:1.8}.archive-card a{display:inline-block;margin-top:12px;color:inherit}.archive-note{margin:-8px 0 22px}
 </style>
 </head>
 <body>
@@ -102,8 +104,8 @@ footer a:hover{color:var(--ink)}
   <div class="eyebrow">Max · Backyard</div>
   <h1>Backyard</h1>
   <p class="sub">
-    The stuff that didn't make it into the portfolio. <b>Four bigger things</b>, and <b>sixty little toys</b>.<br>
-    Every one is a single file, no dependencies, just open and play. Works on your phone too.
+    Earlier projects, automation experiments and little toys.<br>
+    Some are playable, others record an idea I explored.
   </p>
   <div class="headlinks">
     <a class="pill" href="../">中文</a>
@@ -111,9 +113,23 @@ footer a:hover{color:var(--ink)}
   </div>
 </header>
 
+<section class="archive-section" id="earlier-projects">
+<div class="secthead"><h2>Earlier projects & experiments</h2></div>
+<p class="archive-note">Moved from the portfolio; kept here as an archive.</p>
+<div class="archive-grid">
+<article class="archive-card"><h3>Studio</h3><p>A collection of small games, pages and tools made by agents through scheduled tasks. It records an ongoing experiment: give agents room to try things, then keep the results somewhere people can explore.</p><a href="https://maxi-max-dev.github.io/studio/" target="_blank" rel="noopener">Open project ↗</a></article>
+<article class="archive-card"><h3>Heartbeat Wall</h3><p>A pixel-art dashboard for agent activity: who is busy, who is resting, and how tasks are progressing. An experiment in making background work visible at a glance.</p><a href="https://maxi-max-dev.github.io/heartbeat-wall/" target="_blank" rel="noopener">Open project ↗</a></article>
+<article class="archive-card"><h3>Multi-Agent System OPENCLAW</h3><p>Roles, workspaces and scheduled tasks configured on the open-source OpenClaw framework, with results delivered to my phone. My work focuses on workflow setup, task handoffs and failure handling, so execution stays traceable.</p></article>
+<article class="archive-card"><h3>Daily Forecast MIROFISH</h3><p>A workflow around the open-source MiroFish engine for collecting news, generating forecasts and reviewing outcomes. Keeping predictions on record makes it possible to compare them with what happens next.</p></article>
+<article class="archive-card"><h3>Market Analysis DIGITAL ORACLE</h3><p>Inspired by Komako's open-source approach, I built an FX analysis script and experimented with an agent placing simulated trades in the ASX Sharemarket Game. A season of recorded decisions provided material for reviewing the limits of automated trading.</p></article>
+<article class="archive-card"><h3>PackCoach</h3><p>Tell it your case and what you want to bring, and it works out an order that actually fits, then walks you through it step by step. Covered by 406 automated test scenarios.</p><a href="https://maxi-max-dev.github.io/pack-coach/en/" target="_blank" rel="noopener">Open project ↗</a></article>
+</div>
+</section>
+
+
 <div class="secthead">
   <h2>The bigger ones</h2>
-  <span class="note">four, each worth a while</span>
+  <span class="note">A few larger projects to explore</span>
 </div>
 <div class="bigs" id="bigs"></div>
 
@@ -125,7 +141,7 @@ footer a:hover{color:var(--ink)}
 <div class="grid" id="grid"></div>
 
 <footer>
-  All single-file HTML, no dependencies, runs offline.<br>
+  The small toys are single-file HTML experiments.<br>
   <a href="https://maxi-max-dev.github.io/">Portfolio</a> ·
   <a href="https://github.com/maxi-max-dev">GitHub</a>
 </footer>
